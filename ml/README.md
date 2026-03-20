@@ -22,3 +22,6 @@ Znalazłem inny dataset, chyba lepszy - w dużo większy (290Gb zbiór treningow
 [Link do datasetu](https://how2sign.github.io/#download)
 
 
+### Skrypt do pobierania:
+
+`uv run scripts/download_how2sign.py --modality rgb_front_clips --split val`
