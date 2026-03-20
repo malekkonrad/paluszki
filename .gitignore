@@ -8,4 +8,4 @@ __pycache__/
 .idea/
 .downloads/
 
-ml/How2Sign/
+ml/datasets/How2Sign

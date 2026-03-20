@@ -7,7 +7,8 @@ import zipfile
 import tarfile
 from pathlib import Path
 
-ROOT = Path("How2Sign")
+SCRIPT_DIR = Path(__file__).resolve().parent
+ROOT = SCRIPT_DIR.parent / "datasets" / "How2Sign"
 
 
 DATASETS = {
