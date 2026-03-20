@@ -9,3 +9,4 @@ __pycache__/
 .downloads/
 
 ml/datasets/How2Sign
+mlruns
