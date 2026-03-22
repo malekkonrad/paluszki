@@ -5,6 +5,7 @@ import subprocess
 import sys
 import zipfile
 import tarfile
+import re
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -84,38 +85,39 @@ def run(cmd):
     subprocess.run(cmd, check=True)
 
 
+
+
 def download_from_gdrive_wget(file_id: str, output_path: Path):
-    """
-    Pobieranie dużych plików z Google Drive przez wget.
-    Działa lepiej niż gdown dla bardzo dużych archiwów.
-    """
     ensure_dir(output_path.parent)
 
     cookie_file = output_path.parent / "cookies.txt"
-    base_url = f"https://drive.google.com/uc?export=download&id={file_id}"
+    base_url = f"https://docs.google.com/uc?export=download&id={file_id}"
 
-    # 1) pobierz stronę potwierdzenia i wyciągnij token confirm
-    cmd_confirm = f"""wget --quiet --save-cookies "{cookie_file}" --keep-session-cookies --no-check-certificate "{base_url}" -O -"""
+    # krok 1: pobierz stronę pośrednią
     result = subprocess.run(
-        cmd_confirm,
-        shell=True,
+        [
+            "wget",
+            "--quiet",
+            "--save-cookies", str(cookie_file),
+            "--keep-session-cookies",
+            "--no-check-certificate",
+            "-O", "-",
+            base_url,
+        ],
         check=True,
         text=True,
         capture_output=True,
     )
 
-    confirm_token = None
-    for line in result.stdout.splitlines():
-        if "confirm=" in line:
-            import re
-            m = re.search(r"confirm=([0-9A-Za-z_]+)", line)
-            if m:
-                confirm_token = m.group(1)
-                break
+    page = result.stdout
 
-    # 2) właściwy download
+    # spróbuj wyciągnąć token confirm
+    m = re.search(r'confirm=([0-9A-Za-z_]+)', page)
+    confirm_token = m.group(1) if m else None
+
+    # fallback: czasem Google zwraca już bezpośredni link
     if confirm_token:
-        download_url = f"https://drive.google.com/uc?export=download&confirm={confirm_token}&id={file_id}"
+        download_url = f"https://docs.google.com/uc?export=download&confirm={confirm_token}&id={file_id}"
     else:
         download_url = base_url
 
@@ -134,6 +136,16 @@ def download_from_gdrive_wget(file_id: str, output_path: Path):
     ])
 
     cookie_file.unlink(missing_ok=True)
+
+    # szybka walidacja: jeśli pobrał się HTML, a nie zip, przerwij
+    if output_path.suffix == ".zip" and output_path.stat().st_size < 10_000:
+        with open(output_path, "r", encoding="utf-8", errors="ignore") as f:
+            head = f.read(500)
+        if "<html" in head.lower() or "<!doctype html" in head.lower():
+            raise RuntimeError(
+                f"Pobrano HTML zamiast archiwum ZIP: {output_path}. "
+                "Google Drive nie zwrócił bezpośredniego pliku."
+            )
 
 
 def download_small_file_with_gdown(file_id: str, output_path: Path):
