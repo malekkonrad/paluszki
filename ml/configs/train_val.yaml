@@ -1,18 +1,20 @@
 project:
   name: sign-language-translation
   seed: 42
-  output_dir: artifacts
+  output_dir: artifacts/train_val
 
 mlflow:
   enabled: true
   tracking_uri: file:./mlruns
-  experiment_name: how2sign-baselines
-  run_name: cnn_transformer_how2sign_nf16_bs2_lr1e-4
+  experiment_name: how2sign-train-val
+  run_name: cnn_transformer_how2sign_trainval_nf16_bs4_lr1e-4
 
 data:
-  csv_path: datasets/How2Sign/sentence_level/val/text/en/raw_text/re_aligned/how2sign_realigned_val.csv
   csv_separator: "\t"
-  video_dir: datasets/How2Sign/sentence_level/val/rgb_front/raw_videos
+  train_csv_path: datasets/How2Sign/sentence_level/train/text/en/raw_text/re_aligned/how2sign_realigned_train.csv
+  val_csv_path: datasets/How2Sign/sentence_level/val/text/en/raw_text/re_aligned/how2sign_realigned_val.csv
+  train_video_dir: datasets/How2Sign/sentence_level/train/rgb_front/raw_videos
+  val_video_dir: datasets/How2Sign/sentence_level/val/rgb_front/raw_videos
   video_id_column: VIDEO_ID
   source_video_column: VIDEO_NAME
   sentence_id_column: SENTENCE_ID
@@ -22,8 +24,7 @@ data:
   text_column: SENTENCE
   num_frames: 16
   image_size: 224
-  max_text_len: 40
-  train_split: 0.9
+  max_text_len: 64
 
 model:
   pipeline_name: cnn_transformer
@@ -34,9 +35,9 @@ model:
   dropout: 0.1
 
 train:
-  batch_size: 2
-  num_workers: 2
-  epochs: 10
+  batch_size: 4
+  num_workers: 4
+  epochs: 30
   lr: 0.0001
   weight_decay: 0.01
   device: cuda

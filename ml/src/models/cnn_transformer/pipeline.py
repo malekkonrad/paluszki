@@ -32,8 +32,10 @@ class CNNTransformerPipeline(BasePipeline):
         nhead = model_cfg["nhead"]
         num_layers = model_cfg["num_layers"]
         dropout = model_cfg["dropout"]
+        pretrained_backbone = model_cfg.get("pretrained_backbone", True)
 
-        backbone = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
+        backbone_weights = models.ResNet18_Weights.DEFAULT if pretrained_backbone else None
+        backbone = models.resnet18(weights=backbone_weights)
         self.frame_encoder = nn.Sequential(*list(backbone.children())[:-1])
         self.visual_proj = nn.Linear(512, d_model)
 

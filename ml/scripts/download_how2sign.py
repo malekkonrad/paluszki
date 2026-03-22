@@ -1,15 +1,13 @@
 import argparse
-import os
 import shutil
-import subprocess
 import sys
+import time
 import zipfile
 import tarfile
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 ROOT = SCRIPT_DIR.parent / "datasets" / "How2Sign"
-
 
 DATASETS = {
     "english_translation": {
@@ -79,34 +77,57 @@ def ensure_dir(path: Path):
     path.mkdir(parents=True, exist_ok=True)
 
 
-def run(cmd):
-    print(">>>", " ".join(map(str, cmd)))
-    subprocess.run(cmd, check=True)
-
-
-def download_with_gdown(file_id: str, output_path: Path):
-    """
-    Najprostszy i najstabilniejszy sposób pobierania z Google Drive w Pythonie.
-    Wymaga:
-        pip install gdown
-    """
+def download_with_gdown(file_id: str, output_path: Path, retries: int = 20, sleep_seconds: int = 15):
     try:
         import gdown
     except ImportError:
         print("Brakuje pakietu gdown. Zainstaluj:")
-        print("    pip install gdown")
+        print("    uv pip install gdown")
         sys.exit(1)
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_dir(output_path.parent)
     url = f"https://drive.google.com/uc?id={file_id}"
-    print(f"Pobieram {url} -> {output_path}")
-    gdown.download(url, str(output_path), quiet=False, fuzzy=True)
+
+    last_error = None
+
+    for attempt in range(1, retries + 1):
+        try:
+            print(f"Pobieram {url} -> {output_path} (próba {attempt}/{retries})")
+            gdown.download(
+                url=url,
+                output=str(output_path),
+                quiet=False,
+                fuzzy=True,
+                resume=False,
+            )
+
+            if not output_path.exists() or output_path.stat().st_size == 0:
+                raise RuntimeError("Plik nie został pobrany albo ma rozmiar 0 B.")
+
+            return
+
+        except Exception as e:
+            last_error = e
+            print(f"Błąd pobierania: {e}")
+
+            if output_path.exists():
+                print(f"Usuwam niepełny plik: {output_path}")
+                output_path.unlink(missing_ok=True)
+
+            if attempt < retries:
+                print(f"Czekam {sleep_seconds}s przed kolejną próbą...")
+                time.sleep(sleep_seconds)
+
+    raise RuntimeError(f"Nie udało się pobrać pliku po {retries} próbach: {file_id}") from last_error
 
 
 def extract_archive(archive_path: Path, target_dir: Path):
     ensure_dir(target_dir)
 
     if archive_path.suffix == ".zip":
+        if not zipfile.is_zipfile(archive_path):
+            raise RuntimeError(f"Plik nie jest poprawnym ZIP-em: {archive_path}")
+
         print(f"Rozpakowuję ZIP: {archive_path} -> {target_dir}")
         with zipfile.ZipFile(archive_path, "r") as zf:
             zf.extractall(target_dir)

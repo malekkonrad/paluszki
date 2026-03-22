@@ -36,4 +36,18 @@ Przykład pobrania danych validacyjnych xd:
 
 `uv run -m src.main`
 
-(potem się zmieni)
+
+Dla prawdziwego splitu train/val używamy:
+
+`uv run -m src.main --config configs/train_val.yaml`
+
+## Inferencja
+
+Po treningu możesz użyć zapisanego checkpointu:
+
+`uv run -m src.infer --checkpoint artifacts/best_model.pt --video datasets/How2Sign/sentence_level/val/rgb_front/raw_videos/-d5dN54tH2E_0-1-rgb_front.mp4`
+
+Domyślnie inferencja nie pobiera pretrained wag ResNet z internetu.
+Jeśli chcesz je wymusić:
+
+`uv run -m src.infer --checkpoint artifacts/best_model.pt --video <sciezka_do_wideo> --use-pretrained-backbone`

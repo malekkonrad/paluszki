@@ -1,3 +1,5 @@
+import argparse
+
 import pandas as pd
 import torch
 from torch.utils.data import DataLoader, random_split
@@ -12,36 +14,88 @@ from src.utils.config import ensure_dir, load_config
 from src.utils.seed import set_seed
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Train sign-language translation model.")
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="configs/base.yaml",
+        help="Path to training config yaml file.",
+    )
+    return parser.parse_args()
+
+
 def main():
-    cfg = load_config("configs/base.yaml")
+    args = parse_args()
+    cfg = load_config(args.config)
     set_seed(cfg["project"]["seed"])
     csv_separator = cfg["data"].get("csv_separator", ",")
+    data_cfg = cfg["data"]
+    has_explicit_train_val = "train_csv_path" in data_cfg and "val_csv_path" in data_cfg
+    has_legacy_split = "csv_path" in data_cfg and "train_split" in data_cfg
+
+    if not has_explicit_train_val and not has_legacy_split:
+        raise ValueError(
+            "Config data section must define either "
+            "train_csv_path+val_csv_path (recommended) or csv_path+train_split (legacy)."
+        )
 
     device = cfg["train"]["device"]
     if device == "cuda" and not torch.cuda.is_available():
         device = "cpu"
 
     output_dir = ensure_dir(cfg["project"]["output_dir"])
+    text_column = data_cfg["text_column"]
 
-    df = pd.read_csv(cfg["data"]["csv_path"], sep=csv_separator)
-    texts = df[cfg["data"]["text_column"]].astype(str).tolist()
+    if has_explicit_train_val:
+        train_csv_path = data_cfg["train_csv_path"]
+        val_csv_path = data_cfg["val_csv_path"]
+        train_video_dir = data_cfg.get("train_video_dir", data_cfg.get("video_dir"))
+        val_video_dir = data_cfg.get("val_video_dir", data_cfg.get("video_dir"))
+
+        if train_video_dir is None or val_video_dir is None:
+            raise ValueError(
+                "When using train_csv_path/val_csv_path provide train_video_dir and val_video_dir "
+                "or a shared video_dir."
+            )
+
+        train_df = pd.read_csv(train_csv_path, sep=csv_separator)
+        texts = train_df[text_column].astype(str).tolist()
+    else:
+        df = pd.read_csv(data_cfg["csv_path"], sep=csv_separator)
+        texts = df[text_column].astype(str).tolist()
+
     tokenizer = SimpleTokenizer(texts)
+    dataset_kwargs = {
+        "tokenizer": tokenizer,
+        "video_column": data_cfg["video_column"],
+        "text_column": text_column,
+        "num_frames": data_cfg["num_frames"],
+        "image_size": data_cfg["image_size"],
+        "max_text_len": data_cfg["max_text_len"],
+        "csv_separator": csv_separator,
+    }
 
-    dataset = How2SignDataset(
-        csv_path=cfg["data"]["csv_path"],
-        csv_separator=csv_separator,
-        video_dir=cfg["data"]["video_dir"],
-        tokenizer=tokenizer,
-        video_column=cfg["data"]["video_column"],
-        text_column=cfg["data"]["text_column"],
-        num_frames=cfg["data"]["num_frames"],
-        image_size=cfg["data"]["image_size"],
-        max_text_len=cfg["data"]["max_text_len"],
-    )
-
-    train_size = int(cfg["data"]["train_split"] * len(dataset))
-    val_size = len(dataset) - train_size
-    train_ds, val_ds = random_split(dataset, [train_size, val_size])
+    if has_explicit_train_val:
+        train_ds = How2SignDataset(
+            csv_path=train_csv_path,
+            video_dir=train_video_dir,
+            **dataset_kwargs,
+        )
+        val_ds = How2SignDataset(
+            csv_path=val_csv_path,
+            video_dir=val_video_dir,
+            **dataset_kwargs,
+        )
+    else:
+        dataset = How2SignDataset(
+            csv_path=data_cfg["csv_path"],
+            video_dir=data_cfg["video_dir"],
+            **dataset_kwargs,
+        )
+        train_size = int(data_cfg["train_split"] * len(dataset))
+        val_size = len(dataset) - train_size
+        train_ds, val_ds = random_split(dataset, [train_size, val_size])
 
     train_loader = DataLoader(
         train_ds,
