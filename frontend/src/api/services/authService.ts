@@ -18,7 +18,7 @@ class AuthService {
   }
 
   static async getMe(): Promise<IUser> {
-    const response = await axiosInstance.get<IUser>('/auth/me');
+    const response = await axiosInstance.get<IUser>('/auth/current');
     return response.data;
   }
 
