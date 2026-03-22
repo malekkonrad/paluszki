@@ -27,6 +27,7 @@ data:
 
 model:
   pipeline_name: cnn_transformer
+  pretrained_backbone: true
   d_model: 256
   nhead: 8
   num_layers: 4
