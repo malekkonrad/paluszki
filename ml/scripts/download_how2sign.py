@@ -84,11 +84,61 @@ def run(cmd):
     subprocess.run(cmd, check=True)
 
 
-def download_with_gdown(file_id: str, output_path: Path):
+def download_from_gdrive_wget(file_id: str, output_path: Path):
     """
-    Najprostszy i najstabilniejszy sposób pobierania z Google Drive w Pythonie.
-    Wymaga:
-        pip install gdown
+    Pobieranie dużych plików z Google Drive przez wget.
+    Działa lepiej niż gdown dla bardzo dużych archiwów.
+    """
+    ensure_dir(output_path.parent)
+
+    cookie_file = output_path.parent / "cookies.txt"
+    base_url = f"https://drive.google.com/uc?export=download&id={file_id}"
+
+    # 1) pobierz stronę potwierdzenia i wyciągnij token confirm
+    cmd_confirm = f"""wget --quiet --save-cookies "{cookie_file}" --keep-session-cookies --no-check-certificate "{base_url}" -O -"""
+    result = subprocess.run(
+        cmd_confirm,
+        shell=True,
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+
+    confirm_token = None
+    for line in result.stdout.splitlines():
+        if "confirm=" in line:
+            import re
+            m = re.search(r"confirm=([0-9A-Za-z_]+)", line)
+            if m:
+                confirm_token = m.group(1)
+                break
+
+    # 2) właściwy download
+    if confirm_token:
+        download_url = f"https://drive.google.com/uc?export=download&confirm={confirm_token}&id={file_id}"
+    else:
+        download_url = base_url
+
+    run([
+        "wget",
+        "--continue",
+        "--tries=20",
+        "--retry-connrefused",
+        "--waitretry=5",
+        "--read-timeout=30",
+        "--timeout=30",
+        "--no-check-certificate",
+        "--load-cookies", str(cookie_file),
+        download_url,
+        "-O", str(output_path),
+    ])
+
+    cookie_file.unlink(missing_ok=True)
+
+
+def download_small_file_with_gdown(file_id: str, output_path: Path):
+    """
+    Dla małych plików typu CSV gdown jest OK.
     """
     try:
         import gdown
@@ -97,10 +147,17 @@ def download_with_gdown(file_id: str, output_path: Path):
         print("    pip install gdown")
         sys.exit(1)
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_dir(output_path.parent)
     url = f"https://drive.google.com/uc?id={file_id}"
     print(f"Pobieram {url} -> {output_path}")
     gdown.download(url, str(output_path), quiet=False, fuzzy=True)
+
+
+def download_file(file_id: str, output_path: Path, entry_type: str):
+    if entry_type in {"zip", "tar.gz"}:
+        download_from_gdrive_wget(file_id, output_path)
+    else:
+        download_small_file_with_gdown(file_id, output_path)
 
 
 def extract_archive(archive_path: Path, target_dir: Path):
@@ -139,7 +196,7 @@ def handle_entry(entry: dict, download_only: bool = False, keep_archive: bool = 
     local_path = tmp_dir / filename
 
     if not local_path.exists():
-        download_with_gdown(file_id, local_path)
+        download_file(file_id, local_path, entry_type)
     else:
         print(f"Plik już istnieje, pomijam download: {local_path}")
 
