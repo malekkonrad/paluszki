@@ -36,7 +36,10 @@ Przykład pobrania danych validacyjnych xd:
 
 `uv run -m src.main`
 
-(potem się zmieni)
+
+Dla prawdziwego splitu train/val używamy:
+
+`uv run -m src.main --config configs/train_val.yaml`
 
 ## Inferencja
 

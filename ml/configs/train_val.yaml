@@ -1,0 +1,43 @@
+project:
+  name: sign-language-translation
+  seed: 42
+  output_dir: artifacts/train_val
+
+mlflow:
+  enabled: true
+  tracking_uri: file:./mlruns
+  experiment_name: how2sign-train-val
+  run_name: cnn_transformer_how2sign_trainval_nf16_bs4_lr1e-4
+
+data:
+  csv_separator: "\t"
+  train_csv_path: datasets/How2Sign/sentence_level/train/text/en/raw_text/re_aligned/how2sign_realigned_train.csv
+  val_csv_path: datasets/How2Sign/sentence_level/val/text/en/raw_text/re_aligned/how2sign_realigned_val.csv
+  train_video_dir: datasets/How2Sign/sentence_level/train/rgb_front/raw_videos
+  val_video_dir: datasets/How2Sign/sentence_level/val/rgb_front/raw_videos
+  video_id_column: VIDEO_ID
+  source_video_column: VIDEO_NAME
+  sentence_id_column: SENTENCE_ID
+  video_column: SENTENCE_NAME
+  start_time_column: START_REALIGNED
+  end_time_column: END_REALIGNED
+  text_column: SENTENCE
+  num_frames: 16
+  image_size: 224
+  max_text_len: 64
+
+model:
+  pipeline_name: cnn_transformer
+  pretrained_backbone: true
+  d_model: 256
+  nhead: 8
+  num_layers: 4
+  dropout: 0.1
+
+train:
+  batch_size: 4
+  num_workers: 4
+  epochs: 30
+  lr: 0.0001
+  weight_decay: 0.01
+  device: cuda
