@@ -22,7 +22,7 @@ interface AuthProviderProps {
 
 export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [user, setUser] = useState<IUser | null>(null);
-  const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
+  const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -57,8 +57,10 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const handleAuthResponse = useCallback((authUser: IUser, authToken: string) => {
     setUser(authUser);
     setToken(authToken);
-    localStorage.setItem('token', authToken);
-    localStorage.setItem('user', JSON.stringify(authUser));
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('token', authToken);
+      localStorage.setItem('user', JSON.stringify(authUser));
+    }
   }, []);
 
   const login = useCallback(async (data: ILoginRequest) => {
@@ -90,9 +92,10 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const logout = useCallback(() => {
     AuthService.logout().catch(() => {});
     setUser(null);
-    setToken(null);
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+    }
   }, []);
 
   return (

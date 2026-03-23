@@ -1,5 +1,7 @@
+'use client';
+
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useRouter } from 'next/navigation';
 import {
   AppBar,
   Toolbar,
@@ -22,7 +24,7 @@ import { useAuth } from '../hooks/useAuth';
 
 const Navbar = () => {
   const { user, logout } = useAuth();
-  const navigate = useNavigate();
+  const router = useRouter();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
 
   const handleMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
@@ -36,12 +38,12 @@ const Navbar = () => {
   const handleLogout = () => {
     handleMenuClose();
     logout();
-    navigate('/login');
+    router.push('/login');
   };
 
   const handleDashboard = () => {
     handleMenuClose();
-    navigate('/');
+    router.push('/');
   };
 
   const getInitials = () => {

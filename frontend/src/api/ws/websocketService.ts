@@ -2,7 +2,7 @@ import type { IWsMessage, WsMessageType } from '../interfaces/chat';
 
 type MessageCallback = (message: IWsMessage) => void;
 
-const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL || 'ws://localhost:8000/ws';
+const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_BASE_URL || 'ws://localhost:8000/ws';
 
 class WebSocketService {
   private static instance: WebSocketService | null = null;

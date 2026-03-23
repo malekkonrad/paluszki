@@ -1,45 +1,50 @@
-# ── Stage 1: Build ────────────────────────────────────────────
+# ── Stage 1: Dependencies ─────────────────────────────────────
+FROM node:22-alpine AS deps
+
+WORKDIR /app
+
+COPY package.json package-lock.json* ./
+RUN npm ci
+
+# ── Stage 2: Build ────────────────────────────────────────────
 FROM node:22-alpine AS build
 
 WORKDIR /app
 
-# Cache: install deps first
-COPY package.json package-lock.json* ./
-RUN npm ci
-
-# Build args for backend URLs (baked into the static bundle)
-ARG VITE_API_BASE_URL=http://localhost:8000
-ARG VITE_WS_BASE_URL=ws://localhost:8000/ws
-ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
-ENV VITE_WS_BASE_URL=$VITE_WS_BASE_URL
-
+COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+
+# Build args for backend URLs (baked into the client bundle via NEXT_PUBLIC_)
+ARG NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+ARG NEXT_PUBLIC_WS_BASE_URL=ws://localhost:8000/ws
+ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
+ENV NEXT_PUBLIC_WS_BASE_URL=$NEXT_PUBLIC_WS_BASE_URL
+
 RUN npm run build
 
-# ── Stage 2: Serve ────────────────────────────────────────────
-FROM nginx:alpine
+# ── Stage 3: Run ──────────────────────────────────────────────
+FROM node:22-alpine AS runner
 
-RUN apk add --no-cache curl
+WORKDIR /app
 
-COPY --from=build /app/dist /usr/share/nginx/html
+ENV NODE_ENV=production
 
-# SPA fallback + healthcheck endpoint
-RUN printf 'server {\n\
-    listen 80;\n\
-    root /usr/share/nginx/html;\n\
-    index index.html;\n\
-    location /healthz {\n\
-        access_log off;\n\
-        return 200 "ok";\n\
-    }\n\
-    location / {\n\
-        try_files $uri $uri/ /index.html;\n\
-    }\n\
-}\n' > /etc/nginx/conf.d/default.conf
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
+
+# Copy standalone output
+COPY --from=build /app/public ./public
+COPY --from=build --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=build --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+USER nextjs
+
+EXPOSE 3000
+
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
 
 HEALTHCHECK --interval=10s --timeout=3s --retries=3 \
-  CMD curl -f http://localhost/healthz || exit 1
+  CMD wget --no-verbose --tries=1 --spider http://localhost:3000/ || exit 1
 
-EXPOSE 80
-
-CMD ["nginx", "-g", "daemon off;"]
+CMD ["node", "server.js"]

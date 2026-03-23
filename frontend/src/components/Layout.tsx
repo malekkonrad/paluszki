@@ -1,8 +1,13 @@
-import { Outlet } from 'react-router-dom';
+'use client';
+
 import { Box } from '@mui/material';
 import Navbar from './Navbar';
 
-const Layout = () => {
+interface LayoutProps {
+  children: React.ReactNode;
+}
+
+const Layout = ({ children }: LayoutProps) => {
   return (
     <Box
       sx={{
@@ -22,7 +27,7 @@ const Layout = () => {
           flexDirection: 'column',
         }}
       >
-        <Outlet />
+        {children}
       </Box>
     </Box>
   );

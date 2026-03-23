@@ -6,11 +6,9 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./backend/test.db:/data/test.db
+      - ./backend/test.db:/test.db
     environment:
-      - DATABASE_URL=sqlite+aiosqlite:///data/test.db
-      - JWT_SECRET=dev-secret-change-in-production
-      - DEBUG=false
+      - DATABASE_URL=sqlite+aiosqlite:///test.db
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
       interval: 10s
@@ -23,12 +21,12 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        VITE_API_BASE_URL: http://localhost:8000
-        VITE_WS_BASE_URL: ws://localhost:8000/ws
+        NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
+        NEXT_PUBLIC_WS_BASE_URL: ws://localhost:8000/ws
     ports:
-      - "3000:80"
+      - "3000:3000"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost/healthz"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/"]
       interval: 10s
       timeout: 3s
       retries: 3

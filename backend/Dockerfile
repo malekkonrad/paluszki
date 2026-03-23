@@ -18,7 +18,7 @@ COPY main.py ./
 COPY static/ static/
 
 # test.db will be mounted as a volume
-ENV DATABASE_URL=sqlite+aiosqlite:///data/test.db
+ENV DATABASE_URL=sqlite+aiosqlite:///test.db
 
 EXPOSE 8000
 
