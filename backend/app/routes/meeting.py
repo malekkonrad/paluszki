@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.models.participant import ParticipantStatus
 from app.models.user import User
 from app.repos import meeting_repo
 from app.schemas.meeting import (
@@ -76,7 +77,7 @@ async def join_meeting(
 
     # Host auto-approved
     is_host = meeting.host_id == current_user.id
-    participant_status = "approved" if is_host else "waiting"
+    participant_status = ParticipantStatus.approved if is_host else ParticipantStatus.waiting
 
     await meeting_repo.add_participant(db, meeting.id, current_user.id, participant_status, is_host)
     return {"status": participant_status}
@@ -102,7 +103,7 @@ async def approve_participant(
     if meeting.host_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Tylko host może zatwierdzać uczestników")
 
-    participant = await meeting_repo.update_participant_status(db, meeting.id, user_id, "approved")
+    participant = await meeting_repo.update_participant_status(db, meeting.id, user_id, ParticipantStatus.approved)
     if participant is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Uczestnik nie znaleziony")
     return {"status": "approved"}
@@ -128,7 +129,7 @@ async def reject_participant(
     if meeting.host_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Tylko host może odrzucać uczestników")
 
-    participant = await meeting_repo.update_participant_status(db, meeting.id, user_id, "rejected")
+    participant = await meeting_repo.update_participant_status(db, meeting.id, user_id, ParticipantStatus.rejected)
     if participant is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Uczestnik nie znaleziony")
     return {"status": "rejected"}

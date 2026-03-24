@@ -52,16 +52,7 @@ async def register(
     Register a new user with email and password. \\
     Returns user data and a JWT access token.
     """
-    existing = await auth_repo.get_user_by_email(db, data.email)
-    if existing:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Użytkownik z tym adresem email już istnieje",
-        )
-    user = await auth_repo.register_user(db, data.firstName, data.lastName, data.email, data.password)
-    token = create_access_token(user.id)
-    return AuthResponse(user=UserResponse.from_db(user), token=token)
-
+    return await auth_repo.register_user(db, data)
 
 @router.post("/google",
              response_model=AuthResponse,

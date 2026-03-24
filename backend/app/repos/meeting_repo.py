@@ -4,7 +4,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.meeting import Meeting, Participant, ChatMessage
+from app.models import Meeting, Participant, ChatMessage
+from app.models.participant import ParticipantStatus
 
 
 def _generate_code() -> str:
@@ -35,7 +36,7 @@ async def create_meeting(db: AsyncSession, host_id: int, title: str | None = Non
     participant = Participant(
         meeting_id=meeting.id,
         user_id=host_id,
-        status="approved",
+        status=ParticipantStatus.approved,
         is_host=True,
     )
     db.add(participant)
@@ -67,7 +68,7 @@ async def get_meeting_by_id(db: AsyncSession, meeting_id: int) -> Meeting | None
 
 
 async def add_participant(
-    db: AsyncSession, meeting_id: int, user_id: int, status: str = "waiting", is_host: bool = False
+    db: AsyncSession, meeting_id: int, user_id: int, status: ParticipantStatus = ParticipantStatus.waiting, is_host: bool = False
 ) -> Participant:
     # Check if already a participant
     stmt = select(Participant).where(
@@ -94,7 +95,7 @@ async def add_participant(
     return participant
 
 
-async def update_participant_status(db: AsyncSession, meeting_id: int, user_id: int, status: str) -> Participant | None:
+async def update_participant_status(db: AsyncSession, meeting_id: int, user_id: int, status: ParticipantStatus) -> Participant | None:
     stmt = select(Participant).where(
         Participant.meeting_id == meeting_id,
         Participant.user_id == user_id,

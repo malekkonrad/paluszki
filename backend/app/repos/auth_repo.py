@@ -1,8 +1,13 @@
+from http.client import HTTPException
+from fastapi import Depends, HTTPException, status
+
 import bcrypt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
+from app.schemas.auth import RegisterRequest, AuthResponse, UserResponse
+from app.utils.auth.jwt import create_access_token
 
 
 def hash_password(password: str) -> str:
@@ -16,18 +21,28 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return bcrypt.checkpw(pwd_bytes, hashed_password.encode("utf-8"))
 
 
-async def register_user(db: AsyncSession, name: str, surname: str, email: str, password: str) -> User:
-    hashed = hash_password(password)
+async def register_user(
+        db: AsyncSession,
+        data: RegisterRequest
+) -> AuthResponse:
+    existing = await get_user_by_email(db, data.email)
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Użytkownik z tym adresem email już istnieje",
+        )
+    hashed = hash_password(data.password)
     user = User(
-        name=name,
-        surname=surname,
-        email=email,
+        name=data.firstName,
+        surname=data.lastName,
+        email=data.email,
         hashed_password=hashed,
     )
     db.add(user)
     await db.commit()
     await db.refresh(user)
-    return user
+    token = create_access_token(user.id)
+    return AuthResponse(user=UserResponse.from_db(user), token=token)
 
 
 async def authenticate_user(db: AsyncSession, email: str, password: str) -> User | None:
