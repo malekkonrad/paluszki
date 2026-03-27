@@ -1,15 +1,14 @@
 """MediaPipe-based keypoint extraction utilities.
-
 Extracts pose + left hand + right hand landmarks from video frames.
 Output shape per frame: (KEYPOINT_DIM,) = (225,)
   - pose:       33 landmarks × 3 coords = 99
   - left hand:  21 landmarks × 3 coords = 63
   - right hand: 21 landmarks × 3 coords = 63
 """
-
 import cv2
 import numpy as np
 import torch
+import mediapipe as mp
 
 POSE_LANDMARKS = 33
 HAND_LANDMARKS = 21
@@ -30,11 +29,9 @@ def _extract_frame_keypoints(frame_bgr, holistic) -> np.ndarray:
     if result.pose_landmarks:
         for i, lm in enumerate(result.pose_landmarks.landmark):
             pose[i * 3: i * 3 + 3] = [lm.x, lm.y, lm.z]
-
     if result.left_hand_landmarks:
         for i, lm in enumerate(result.left_hand_landmarks.landmark):
             left_hand[i * 3: i * 3 + 3] = [lm.x, lm.y, lm.z]
-
     if result.right_hand_landmarks:
         for i, lm in enumerate(result.right_hand_landmarks.landmark):
             right_hand[i * 3: i * 3 + 3] = [lm.x, lm.y, lm.z]
@@ -49,10 +46,6 @@ def extract_keypoints_from_video(video_path: str, num_frames: int) -> np.ndarray
         np.ndarray of shape (num_frames, KEYPOINT_DIM), dtype float32.
         Missing landmarks are zero-padded.
     """
-    # Direct module import — works with mediapipe 0.10.x where mp.solutions
-    # is no longer accessible as a top-level attribute.
-    from mediapipe.python.solutions.holistic import Holistic  # noqa: PLC0415
-
     cap = cv2.VideoCapture(video_path)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
@@ -62,11 +55,10 @@ def extract_keypoints_from_video(video_path: str, num_frames: int) -> np.ndarray
 
     indices = torch.linspace(0, max(total_frames - 1, 0), steps=num_frames).long().tolist()
     target_set = set(indices)
-
     keypoints = []
     frame_id = 0
 
-    with Holistic(
+    with mp.solutions.holistic.Holistic(
         static_image_mode=True,
         min_detection_confidence=0.3,
         min_tracking_confidence=0.3,
@@ -75,13 +67,11 @@ def extract_keypoints_from_video(video_path: str, num_frames: int) -> np.ndarray
             ret, frame = cap.read()
             if not ret:
                 break
-
             if frame_id in target_set:
                 kp = _extract_frame_keypoints(frame, holistic)
                 keypoints.append(kp)
                 if len(keypoints) == num_frames:
                     break
-
             frame_id += 1
 
     cap.release()

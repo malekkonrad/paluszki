@@ -3,16 +3,16 @@ name = "ml"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.14"
 dependencies = [
     "gdown>=5.2.1",
     "mlflow>=2.22.0",
-    "opencv-python>=4.13.0.92",
+    "opencv-python>=4.8.0,<4.10.0",
     "pandas>=2.2.0,<3.0.0",
     "pyyaml>=6.0.3",
     "torch>=2.10.0",
     "torchvision>=0.25.0",
     "sacrebleu>=2.4.0",
     "jiwer>=3.0.0",
-    "mediapipe>=0.10.0",
+    "mediapipe==0.10.21",
 ]
