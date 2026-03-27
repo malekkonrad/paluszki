@@ -109,7 +109,8 @@ def resolve_device(cfg, device_override):
 
 def build_tokenizer_from_config(cfg):
     csv_separator = cfg["data"].get("csv_separator", ",")
-    df = pd.read_csv(cfg["data"]["csv_path"], sep=csv_separator)
+    csv_path = cfg["data"].get("csv_path") or cfg["data"].get("train_csv_path")
+    df = pd.read_csv(csv_path, sep=csv_separator)
     texts = df[cfg["data"]["text_column"]].astype(str).tolist()
     return SimpleTokenizer(texts)
 
