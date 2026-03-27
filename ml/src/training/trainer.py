@@ -1,6 +1,8 @@
 from pathlib import Path
 import torch
 
+from src.evaluation.metrics import compute_bleu4, compute_wer
+
 
 class Trainer:
     def __init__(
@@ -12,6 +14,7 @@ class Trainer:
         device,
         output_dir,
         mlflow_logger=None,
+        max_eval_samples=32,
     ):
         self.model = model
         self.optimizer = optimizer
@@ -22,15 +25,24 @@ class Trainer:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.mlflow_logger = mlflow_logger
         self.best_val_loss = float("inf")
+        self.max_eval_samples = max_eval_samples
 
     def _move_batch_to_device(self, batch):
         batch["frames"] = batch["frames"].to(self.device)
         batch["tokens"] = batch["tokens"].to(self.device)
         return batch
 
+    def _compute_grad_norm(self) -> float:
+        total_norm = 0.0
+        for p in self.model.parameters():
+            if p.grad is not None:
+                total_norm += p.grad.data.norm(2).item() ** 2
+        return total_norm ** 0.5
+
     def train_one_epoch(self):
         self.model.train()
         total_loss = 0.0
+        total_grad_norm = 0.0
 
         for batch in self.train_loader:
             batch = self._move_batch_to_device(batch)
@@ -41,31 +53,49 @@ class Trainer:
             loss = loss_dict["loss"]
 
             loss.backward()
+            total_grad_norm += self._compute_grad_norm()
             self.optimizer.step()
 
             total_loss += loss.item()
 
+        n = len(self.train_loader)
         return {
-            "train_loss": total_loss / len(self.train_loader)
+            "train_loss": total_loss / n,
+            "train_grad_norm": total_grad_norm / n,
         }
 
     @torch.no_grad()
     def validate(self):
         self.model.eval()
         total_loss = 0.0
+        hypotheses = []
+        references = []
 
         for batch in self.val_loader:
             batch = self._move_batch_to_device(batch)
 
             outputs = self.model(batch)
             loss_dict = self.model.compute_loss(batch, outputs)
-            loss = loss_dict["loss"]
+            total_loss += loss_dict["loss"].item()
 
-            total_loss += loss.item()
+            if len(hypotheses) < self.max_eval_samples:
+                frames = batch["frames"]
+                tokens = batch["tokens"]
+                remaining = self.max_eval_samples - len(hypotheses)
+                for i in range(min(frames.size(0), remaining)):
+                    pred_ids = self.model.greedy_decode(frames[i])
+                    pred_text = self.model.tokenizer.decode(pred_ids)
+                    ref_text = self.model.tokenizer.decode(tokens[i].tolist())
+                    hypotheses.append(pred_text)
+                    references.append(ref_text)
 
-        return {
-            "val_loss": total_loss / len(self.val_loader)
-        }
+        metrics = {"val_loss": total_loss / len(self.val_loader)}
+
+        if hypotheses:
+            metrics["val_bleu4"] = compute_bleu4(hypotheses, references)
+            metrics["val_wer"] = compute_wer(hypotheses, references)
+
+        return metrics
 
     def save_checkpoint(self, name):
         path = self.output_dir / name
@@ -80,7 +110,9 @@ class Trainer:
             print(
                 f"Epoch {epoch + 1}/{epochs} | "
                 f"train_loss={train_metrics['train_loss']:.4f} | "
-                f"val_loss={val_metrics['val_loss']:.4f}"
+                f"val_loss={val_metrics['val_loss']:.4f} | "
+                f"val_bleu4={val_metrics.get('val_bleu4', 0):.2f} | "
+                f"val_wer={val_metrics.get('val_wer', 0):.2f}%"
             )
 
             if self.mlflow_logger:

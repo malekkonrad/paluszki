@@ -7,6 +7,6 @@ __pycache__/
 .env
 .idea/
 .downloads/
+CLAUDE.md
 
 ml/datasets/How2Sign
-mlruns
