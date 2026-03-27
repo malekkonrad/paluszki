@@ -7,6 +7,7 @@ import torch
 import torchvision.transforms as T
 from PIL import Image
 
+from src.data.keypoint_extractor import extract_keypoints_from_video
 from src.data.tokenizer import SimpleTokenizer
 from src.registry import PIPELINE_REGISTRY
 from src.utils.config import load_config
@@ -138,11 +139,17 @@ def main():
     model.load_state_dict(state_dict)
     model.eval()
 
-    frames = sample_video_frames(
-        video_path=video_path,
-        num_frames=cfg["data"]["num_frames"],
-        image_size=cfg["data"]["image_size"],
-    ).to(device)
+    dataset_type = cfg["data"].get("dataset_type", "video")
+    if dataset_type == "keypoint":
+        import numpy as np
+        kp = extract_keypoints_from_video(str(video_path), cfg["data"]["num_frames"])
+        frames = torch.from_numpy(kp).to(device)   # [T, 225]
+    else:
+        frames = sample_video_frames(
+            video_path=video_path,
+            num_frames=cfg["data"]["num_frames"],
+            image_size=cfg["data"]["image_size"],
+        ).to(device)
 
     max_len = args.max_len or cfg["data"]["max_text_len"]
     token_ids = model.greedy_decode(frames, max_len=max_len)

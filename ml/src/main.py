@@ -6,6 +6,7 @@ from torch.utils.data import DataLoader, random_split
 
 from src.data.collate import collate_fn
 from src.data.how2sign_dataset import How2SignDataset
+from src.data.keypoint_dataset import KeypointDataset
 from src.data.tokenizer import SimpleTokenizer
 from src.registry import PIPELINE_REGISTRY
 from src.tracking.mlflow_logger import MLFlowLogger
@@ -66,29 +67,43 @@ def main():
         texts = df[text_column].astype(str).tolist()
 
     tokenizer = SimpleTokenizer(texts)
-    dataset_kwargs = {
+
+    dataset_type = data_cfg.get("dataset_type", "video")
+    shared_kwargs = {
         "tokenizer": tokenizer,
         "video_column": data_cfg["video_column"],
         "text_column": text_column,
         "num_frames": data_cfg["num_frames"],
-        "image_size": data_cfg["image_size"],
         "max_text_len": data_cfg["max_text_len"],
         "csv_separator": csv_separator,
     }
 
+    if dataset_type == "keypoint":
+        DatasetClass = KeypointDataset
+        extra_kwargs = {
+            "cache_dir": data_cfg.get("keypoint_cache_dir"),
+        }
+    else:
+        DatasetClass = How2SignDataset
+        extra_kwargs = {
+            "image_size": data_cfg["image_size"],
+        }
+
+    dataset_kwargs = {**shared_kwargs, **extra_kwargs}
+
     if has_explicit_train_val:
-        train_ds = How2SignDataset(
+        train_ds = DatasetClass(
             csv_path=train_csv_path,
             video_dir=train_video_dir,
             **dataset_kwargs,
         )
-        val_ds = How2SignDataset(
+        val_ds = DatasetClass(
             csv_path=val_csv_path,
             video_dir=val_video_dir,
             **dataset_kwargs,
         )
     else:
-        dataset = How2SignDataset(
+        dataset = DatasetClass(
             csv_path=data_cfg["csv_path"],
             video_dir=data_cfg["video_dir"],
             **dataset_kwargs,

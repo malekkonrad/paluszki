@@ -14,4 +14,5 @@ dependencies = [
     "torchvision>=0.25.0",
     "sacrebleu>=2.4.0",
     "jiwer>=3.0.0",
+    "mediapipe>=0.10.0",
 ]
