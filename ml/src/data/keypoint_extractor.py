@@ -49,7 +49,9 @@ def extract_keypoints_from_video(video_path: str, num_frames: int) -> np.ndarray
         np.ndarray of shape (num_frames, KEYPOINT_DIM), dtype float32.
         Missing landmarks are zero-padded.
     """
-    import mediapipe as mp  # lazy import so the rest of the codebase works without mediapipe
+    # Direct module import — works with mediapipe 0.10.x where mp.solutions
+    # is no longer accessible as a top-level attribute.
+    from mediapipe.python.solutions.holistic import Holistic  # noqa: PLC0415
 
     cap = cv2.VideoCapture(video_path)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -64,8 +66,7 @@ def extract_keypoints_from_video(video_path: str, num_frames: int) -> np.ndarray
     keypoints = []
     frame_id = 0
 
-    mp_holistic = mp.solutions.holistic
-    with mp_holistic.Holistic(
+    with Holistic(
         static_image_mode=True,
         min_detection_confidence=0.3,
         min_tracking_confidence=0.3,
