@@ -1,0 +1,14 @@
+artifact_uri: file:///home/kmalek/paluszki/ml/mlruns/356158625288278782/fc257f74ae704ca3a0c40b9d174bf5d8/artifacts
+end_time: 1774626777876
+entry_point_name: ''
+experiment_id: '356158625288278782'
+lifecycle_stage: active
+run_id: fc257f74ae704ca3a0c40b9d174bf5d8
+run_name: keypoint_transformer_trainval_nf32_bs8_lr3e-4
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1774626654738
+status: 3
+tags: []
+user_id: kmalek

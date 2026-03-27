@@ -10,3 +10,4 @@ __pycache__/
 CLAUDE.md
 
 ml/datasets/How2Sign
+ml/datasets/keypoint_cache
