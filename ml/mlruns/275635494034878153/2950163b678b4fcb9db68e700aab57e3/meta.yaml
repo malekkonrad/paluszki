@@ -1,0 +1,14 @@
+artifact_uri: file:///home/kmalek/paluszki/ml/mlruns/275635494034878153/2950163b678b4fcb9db68e700aab57e3/artifacts
+end_time: 1774384564304
+entry_point_name: ''
+experiment_id: '275635494034878153'
+lifecycle_stage: active
+run_id: 2950163b678b4fcb9db68e700aab57e3
+run_name: cnn_transformer_how2sign_trainval_nf16_bs4_lr1e-4
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1774367364213
+status: 3
+tags: []
+user_id: kmalek

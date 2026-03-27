@@ -1,0 +1,7 @@
+artifact_location: file:///home/kmalek/paluszki/ml/mlruns/275635494034878153
+creation_time: 1774215101737
+experiment_id: '275635494034878153'
+last_update_time: 1774215101737
+lifecycle_stage: active
+name: how2sign-train-val
+workspace: default
