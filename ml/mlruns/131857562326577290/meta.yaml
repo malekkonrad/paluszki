@@ -1,0 +1,7 @@
+artifact_location: file:///home/kmalek/paluszki/ml/mlruns/131857562326577290
+creation_time: 1775061311310
+experiment_id: '131857562326577290'
+last_update_time: 1775061311310
+lifecycle_stage: active
+name: wlasl-baselines
+workspace: default

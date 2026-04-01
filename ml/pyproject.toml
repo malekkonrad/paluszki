@@ -15,4 +15,5 @@ dependencies = [
     "sacrebleu>=2.4.0",
     "jiwer>=3.0.0",
     "mediapipe==0.10.21",
+    "kaggle>=2.0.0",
 ]
