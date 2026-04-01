@@ -14,44 +14,34 @@ from src.utils.config import load_config
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Run inference for sign-language translation.")
+    parser = argparse.ArgumentParser(description="Run inference for sign-language model.")
     parser.add_argument(
-        "--checkpoint",
-        type=str,
-        required=True,
-        help="Path to model checkpoint (.pt), e.g. artifacts/best_model.pt",
+        "--checkpoint", type=str, required=True,
+        help="Path to model checkpoint (.pt)",
     )
     parser.add_argument(
-        "--video",
-        type=str,
-        required=True,
+        "--video", type=str, required=True,
         help="Path to input video (.mp4).",
     )
     parser.add_argument(
-        "--config",
-        type=str,
-        default="configs/base.yaml",
+        "--config", type=str, default="configs/base.yaml",
         help="Path to config file.",
     )
     parser.add_argument(
-        "--device",
-        type=str,
-        default=None,
-        help="Device override: cpu/cuda. If omitted, taken from config with CUDA fallback to CPU.",
+        "--device", type=str, default=None,
+        help="Device override: cpu/cuda.",
     )
     parser.add_argument(
-        "--max-len",
-        type=int,
-        default=None,
-        help="Maximum generated token length. Defaults to data.max_text_len from config.",
+        "--max-len", type=int, default=None,
+        help="Maximum generated token length (translation only).",
     )
     parser.add_argument(
-        "--use-pretrained-backbone",
-        action="store_true",
-        help=(
-            "If set, initializes ResNet18 with torchvision pretrained weights before loading checkpoint. "
-            "By default it's disabled to avoid network dependency during inference."
-        ),
+        "--top-k", type=int, default=5,
+        help="Number of top predictions to show (classification only).",
+    )
+    parser.add_argument(
+        "--use-pretrained-backbone", action="store_true",
+        help="Initialize ResNet18 with pretrained weights before loading checkpoint.",
     )
     return parser.parse_args()
 
@@ -115,19 +105,51 @@ def build_tokenizer_from_config(cfg):
     return SimpleTokenizer(texts)
 
 
-def main():
-    args = parse_args()
-
-    cfg = load_config(args.config)
-    device = resolve_device(cfg, args.device)
+def _infer_classification(args, cfg, device):
+    from src.data.label_map import GlossLabelMap
 
     checkpoint_path = Path(args.checkpoint)
-    if not checkpoint_path.exists():
-        raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
-
     video_path = Path(args.video)
-    if not video_path.exists():
-        raise FileNotFoundError(f"Video not found: {video_path}")
+
+    # Load label map from alongside the checkpoint, or rebuild from JSON
+    ckpt_dir = checkpoint_path.parent
+    label_map_path = ckpt_dir / "label_map.json"
+
+    if label_map_path.exists():
+        label_map = GlossLabelMap.load(label_map_path)
+    else:
+        label_map = GlossLabelMap.from_wlasl_json(
+            cfg["data"]["json_path"],
+            num_classes=cfg["data"]["num_classes"],
+        )
+
+    num_classes = len(label_map)
+    pipeline_name = cfg["model"]["pipeline_name"]
+    pipeline_cls = PIPELINE_REGISTRY[pipeline_name]
+    model = pipeline_cls(cfg, num_classes).to(device)
+
+    state_dict = torch.load(checkpoint_path, map_location=device)
+    model.load_state_dict(state_dict)
+    model.eval()
+
+    kp = extract_keypoints_from_video(str(video_path), cfg["data"]["num_frames"])
+    keypoints = torch.from_numpy(kp).to(device)
+
+    result = model.classify(keypoints, top_k=args.top_k)
+
+    print(f"video: {video_path}")
+    print(f"checkpoint: {checkpoint_path}")
+    print(f"\nTop-{args.top_k} predictions:")
+    for rank, (cls_id, prob) in enumerate(
+        zip(result["top_k_ids"], result["top_k_probs"]), 1
+    ):
+        gloss = label_map.decode(cls_id)
+        print(f"  {rank}. {gloss} ({prob:.1%})")
+
+
+def _infer_translation(args, cfg, device):
+    checkpoint_path = Path(args.checkpoint)
+    video_path = Path(args.video)
 
     tokenizer = build_tokenizer_from_config(cfg)
     cfg["model"]["pretrained_backbone"] = args.use_pretrained_backbone
@@ -142,9 +164,8 @@ def main():
 
     dataset_type = cfg["data"].get("dataset_type", "video")
     if dataset_type == "keypoint":
-        import numpy as np
         kp = extract_keypoints_from_video(str(video_path), cfg["data"]["num_frames"])
-        frames = torch.from_numpy(kp).to(device)   # [T, 225]
+        frames = torch.from_numpy(kp).to(device)
     else:
         frames = sample_video_frames(
             video_path=video_path,
@@ -159,6 +180,28 @@ def main():
     print(f"video: {video_path}")
     print(f"checkpoint: {checkpoint_path}")
     print(f"translation: {translation}")
+
+
+def main():
+    args = parse_args()
+
+    cfg = load_config(args.config)
+    device = resolve_device(cfg, args.device)
+
+    checkpoint_path = Path(args.checkpoint)
+    if not checkpoint_path.exists():
+        raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+
+    video_path = Path(args.video)
+    if not video_path.exists():
+        raise FileNotFoundError(f"Video not found: {video_path}")
+
+    task_type = cfg["data"].get("task", "translation")
+
+    if task_type == "classification":
+        _infer_classification(args, cfg, device)
+    else:
+        _infer_translation(args, cfg, device)
 
 
 if __name__ == "__main__":

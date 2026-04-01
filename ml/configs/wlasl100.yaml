@@ -1,0 +1,38 @@
+project:
+  name: sign-language-recognition
+  seed: 42
+  output_dir: artifacts/wlasl100
+
+mlflow:
+  enabled: true
+  tracking_uri: file:./mlruns
+  experiment_name: wlasl-baselines
+  run_name: keypoint_classifier_wlasl100
+
+data:
+  task: classification
+  dataset_type: wlasl
+  json_path: datasets/WLASL/WLASL_v0.3.json
+  video_dir: datasets/WLASL/videos
+  keypoint_cache_dir: datasets/WLASL/keypoints
+  num_classes: 100
+  num_frames: 32
+
+model:
+  pipeline_name: keypoint_classifier
+  keypoint_dim: 225       # pose(99) + left_hand(63) + right_hand(63)
+  d_model: 256
+  nhead: 8
+  num_encoder_layers: 4
+  classifier_hidden: 512
+  dropout: 0.3
+  label_smoothing: 0.1
+  pooling: mean           # "mean" or "cls"
+
+train:
+  batch_size: 32
+  num_workers: 4
+  epochs: 100
+  lr: 0.0003
+  weight_decay: 0.01
+  device: cuda

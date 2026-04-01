@@ -4,7 +4,7 @@ import pandas as pd
 import torch
 from torch.utils.data import DataLoader, random_split
 
-from src.data.collate import collate_fn
+from src.data.collate import classification_collate_fn, collate_fn
 from src.data.how2sign_dataset import How2SignDataset
 from src.data.keypoint_dataset import KeypointDataset
 from src.data.tokenizer import SimpleTokenizer
@@ -16,7 +16,7 @@ from src.utils.seed import set_seed
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Train sign-language translation model.")
+    parser = argparse.ArgumentParser(description="Train sign-language model.")
     parser.add_argument(
         "--config",
         type=str,
@@ -26,10 +26,52 @@ def parse_args():
     return parser.parse_args()
 
 
-def main():
-    args = parse_args()
-    cfg = load_config(args.config)
-    set_seed(cfg["project"]["seed"])
+def _build_classification_loaders(cfg):
+    """Build train/val DataLoaders for WLASL classification."""
+    from src.data.label_map import GlossLabelMap
+    from src.data.wlasl_dataset import WLASLDataset
+
+    data_cfg = cfg["data"]
+
+    label_map = GlossLabelMap.from_wlasl_json(
+        data_cfg["json_path"],
+        num_classes=data_cfg["num_classes"],
+    )
+
+    shared = dict(
+        json_path=data_cfg["json_path"],
+        video_dir=data_cfg["video_dir"],
+        num_classes=data_cfg["num_classes"],
+        num_frames=data_cfg["num_frames"],
+        cache_dir=data_cfg.get("keypoint_cache_dir"),
+        label_map=label_map,
+    )
+
+    train_ds = WLASLDataset(split="train", **shared)
+    val_ds = WLASLDataset(split="val", **shared)
+
+    print(f"WLASL{data_cfg['num_classes']}: {len(train_ds)} train, {len(val_ds)} val samples")
+
+    train_loader = DataLoader(
+        train_ds,
+        batch_size=cfg["train"]["batch_size"],
+        shuffle=True,
+        num_workers=cfg["train"]["num_workers"],
+        collate_fn=classification_collate_fn,
+    )
+    val_loader = DataLoader(
+        val_ds,
+        batch_size=cfg["train"]["batch_size"],
+        shuffle=False,
+        num_workers=cfg["train"]["num_workers"],
+        collate_fn=classification_collate_fn,
+    )
+
+    return train_loader, val_loader, label_map
+
+
+def _build_translation_loaders(cfg):
+    """Build train/val DataLoaders for How2Sign translation."""
     csv_separator = cfg["data"].get("csv_separator", ",")
     data_cfg = cfg["data"]
     has_explicit_train_val = "train_csv_path" in data_cfg and "val_csv_path" in data_cfg
@@ -41,11 +83,6 @@ def main():
             "train_csv_path+val_csv_path (recommended) or csv_path+train_split (legacy)."
         )
 
-    device = cfg["train"]["device"]
-    if device == "cuda" and not torch.cuda.is_available():
-        device = "cpu"
-
-    output_dir = ensure_dir(cfg["project"]["output_dir"])
     text_column = data_cfg["text_column"]
 
     if has_explicit_train_val:
@@ -80,33 +117,23 @@ def main():
 
     if dataset_type == "keypoint":
         DatasetClass = KeypointDataset
-        extra_kwargs = {
-            "cache_dir": data_cfg.get("keypoint_cache_dir"),
-        }
+        extra_kwargs = {"cache_dir": data_cfg.get("keypoint_cache_dir")}
     else:
         DatasetClass = How2SignDataset
-        extra_kwargs = {
-            "image_size": data_cfg["image_size"],
-        }
+        extra_kwargs = {"image_size": data_cfg["image_size"]}
 
     dataset_kwargs = {**shared_kwargs, **extra_kwargs}
 
     if has_explicit_train_val:
         train_ds = DatasetClass(
-            csv_path=train_csv_path,
-            video_dir=train_video_dir,
-            **dataset_kwargs,
+            csv_path=train_csv_path, video_dir=train_video_dir, **dataset_kwargs,
         )
         val_ds = DatasetClass(
-            csv_path=val_csv_path,
-            video_dir=val_video_dir,
-            **dataset_kwargs,
+            csv_path=val_csv_path, video_dir=val_video_dir, **dataset_kwargs,
         )
     else:
         dataset = DatasetClass(
-            csv_path=data_cfg["csv_path"],
-            video_dir=data_cfg["video_dir"],
-            **dataset_kwargs,
+            csv_path=data_cfg["csv_path"], video_dir=data_cfg["video_dir"], **dataset_kwargs,
         )
         train_size = int(data_cfg["train_split"] * len(dataset))
         val_size = len(dataset) - train_size
@@ -127,9 +154,34 @@ def main():
         collate_fn=collate_fn,
     )
 
+    return train_loader, val_loader, tokenizer
+
+
+def main():
+    args = parse_args()
+    cfg = load_config(args.config)
+    set_seed(cfg["project"]["seed"])
+
+    device = cfg["train"]["device"]
+    if device == "cuda" and not torch.cuda.is_available():
+        device = "cpu"
+
+    output_dir = ensure_dir(cfg["project"]["output_dir"])
+    task_type = cfg["data"].get("task", "translation")
     pipeline_name = cfg["model"]["pipeline_name"]
-    pipeline_cls = PIPELINE_REGISTRY[pipeline_name]
-    model = pipeline_cls(cfg, tokenizer).to(device)
+
+    if task_type == "classification":
+        train_loader, val_loader, label_map = _build_classification_loaders(cfg)
+        num_classes = len(label_map)
+        pipeline_cls = PIPELINE_REGISTRY[pipeline_name]
+        model = pipeline_cls(cfg, num_classes).to(device)
+
+        # Save label map alongside checkpoints
+        label_map.save(output_dir / "label_map.json")
+    else:
+        train_loader, val_loader, tokenizer = _build_translation_loaders(cfg)
+        pipeline_cls = PIPELINE_REGISTRY[pipeline_name]
+        model = pipeline_cls(cfg, tokenizer).to(device)
 
     optimizer = torch.optim.AdamW(
         model.parameters(),
@@ -143,7 +195,8 @@ def main():
     mlflow_logger.set_tags({
         "project": cfg["project"]["name"],
         "pipeline": pipeline_name,
-        "dataset": "how2sign",
+        "task": task_type,
+        "dataset": cfg["data"].get("dataset_type", "how2sign"),
     })
 
     trainer = Trainer(
@@ -154,6 +207,7 @@ def main():
         device=device,
         output_dir=output_dir,
         mlflow_logger=mlflow_logger,
+        task_type=task_type,
     )
 
     trainer.fit(cfg["train"]["epochs"])
