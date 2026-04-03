@@ -11,6 +11,7 @@ CLAUDE.md
 
 ml/datasets/How2Sign
 ml/datasets/keypoint_cache
-ml/datasets/WLASL
+ml/datasets/WLASL/videos
+ml/datasets/WLASL/keypoints
 ml/datasets/ms-asl/videos
 ml/datasets/ms-asl/keypoints
