@@ -77,7 +77,11 @@ def _build_classification_loaders(cfg):
 
 
 def _build_msasl_loaders(cfg):
-    """Build train/val DataLoaders for MS-ASL classification."""
+    """Build train/val DataLoaders for MS-ASL classification.
+
+    If the val split has too few samples (< 10% of train), automatically
+    splits the train set 80/20.
+    """
     from src.data.keypoint_augmentation import KeypointAugmentor
     from src.data.msasl_dataset import MSASLDataset, build_msasl_label_map
 
@@ -90,8 +94,6 @@ def _build_msasl_loaders(cfg):
     )
 
     normalize = data_cfg.get("normalize_keypoints", True)
-
-    # Augmentation only for training
     train_transform = KeypointAugmentor(aug_cfg) if aug_cfg.get("enabled", False) else None
 
     shared = dict(
@@ -104,6 +106,15 @@ def _build_msasl_loaders(cfg):
 
     train_ds = MSASLDataset(split="train", transform=train_transform, **shared)
     val_ds = MSASLDataset(split="val", **shared)
+
+    # Auto-split train if val is too small
+    val_split = data_cfg.get("val_split", 0.2)
+    if len(val_ds) < len(train_ds) * 0.1:
+        print(f"  Val set too small ({len(val_ds)}), splitting train {1-val_split:.0%}/{val_split:.0%}")
+        total = len(train_ds)
+        val_size = int(total * val_split)
+        train_size = total - val_size
+        train_ds, val_ds = random_split(train_ds, [train_size, val_size])
 
     print(f"MS-ASL top-{data_cfg['num_classes']}: {len(train_ds)} train, {len(val_ds)} val samples")
 
