@@ -126,17 +126,50 @@ class MSASLDataset(Dataset):
         }
 
 
-def build_msasl_label_map(data_dir: str | Path, num_classes: int = 100) -> GlossLabelMap:
-    """Build a GlossLabelMap from the top-N most frequent MS-ASL train classes."""
+def build_msasl_label_map(
+    data_dir: str | Path,
+    num_classes: int = 100,
+    rank_by_available: bool = True,
+) -> GlossLabelMap:
+    """Build a GlossLabelMap from the top-N MS-ASL train classes.
+
+    Args:
+        data_dir: Root directory with MSASL JSONs, videos/, and keypoints/.
+        num_classes: How many classes to include.
+        rank_by_available: If True, rank by number of samples that have
+            a downloaded video or cached keypoints (not by total dataset
+            frequency). Falls back to dataset frequency for ties.
+    """
     data_dir = Path(data_dir)
+    video_dir = data_dir / "videos"
+    cache_dir = data_dir / "keypoints"
 
     with open(data_dir / "MSASL_classes.json") as f:
         classes = json.load(f)
     with open(data_dir / "MSASL_train.json") as f:
         train = json.load(f)
 
-    counts = Counter(s["label"] for s in train)
-    top_n = counts.most_common(num_classes)
-    glosses = [classes[label] for label, _ in top_n]
+    if rank_by_available:
+        avail_counts: Counter = Counter()
+        total_counts: Counter = Counter()
+        for s in train:
+            vid = _video_id(s)
+            total_counts[s["label"]] += 1
+            has_cache = cache_dir.exists() and (cache_dir / f"{vid}.npy").exists()
+            has_video = (video_dir / f"{vid}.mp4").exists()
+            if has_cache or has_video:
+                avail_counts[s["label"]] += 1
 
+        # Sort by available count desc, break ties by total count desc
+        ranked = sorted(
+            avail_counts.keys(),
+            key=lambda l: (avail_counts[l], total_counts[l]),
+            reverse=True,
+        )
+        top_labels = ranked[:num_classes]
+    else:
+        counts = Counter(s["label"] for s in train)
+        top_labels = [label for label, _ in counts.most_common(num_classes)]
+
+    glosses = [classes[label] for label in top_labels]
     return GlossLabelMap(glosses)

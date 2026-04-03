@@ -93,6 +93,11 @@ def _build_msasl_loaders(cfg):
         num_classes=data_cfg["num_classes"],
     )
 
+    # Log selected classes
+    print(f"\nSelected {len(label_map)} classes (ranked by available data):")
+    for i, gloss in enumerate(label_map.glosses):
+        print(f"  {i:3d}. {gloss}")
+
     normalize = data_cfg.get("normalize_keypoints", True)
     train_transform = KeypointAugmentor(aug_cfg) if aug_cfg.get("enabled", False) else None
 
