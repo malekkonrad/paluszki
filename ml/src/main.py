@@ -2,7 +2,7 @@ import argparse
 
 import pandas as pd
 import torch
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import ConcatDataset, DataLoader, random_split
 
 from src.data.collate import classification_collate_fn, collate_fn
 from src.data.how2sign_dataset import How2SignDataset
@@ -33,6 +33,8 @@ def _build_classification_loaders(cfg):
     data_cfg = cfg["data"]
     dataset_type = data_cfg.get("dataset_type", "wlasl")
 
+    if dataset_type == "merged":
+        return _build_merged_loaders(cfg)
     if dataset_type == "msasl":
         return _build_msasl_loaders(cfg)
 
@@ -122,6 +124,96 @@ def _build_msasl_loaders(cfg):
         train_ds, val_ds = random_split(train_ds, [train_size, val_size])
 
     print(f"MS-ASL top-{data_cfg['num_classes']}: {len(train_ds)} train, {len(val_ds)} val samples")
+
+    train_loader = DataLoader(
+        train_ds,
+        batch_size=cfg["train"]["batch_size"],
+        shuffle=True,
+        num_workers=cfg["train"]["num_workers"],
+        collate_fn=classification_collate_fn,
+    )
+    val_loader = DataLoader(
+        val_ds,
+        batch_size=cfg["train"]["batch_size"],
+        shuffle=False,
+        num_workers=cfg["train"]["num_workers"],
+        collate_fn=classification_collate_fn,
+    )
+
+    return train_loader, val_loader, label_map
+
+
+def _build_merged_loaders(cfg):
+    """Build train/val DataLoaders from MS-ASL + WLASL combined."""
+    from src.data.keypoint_augmentation import KeypointAugmentor
+    from src.data.merged_label_map import build_merged_label_map
+    from src.data.msasl_dataset import MSASLDataset
+    from src.data.wlasl_dataset import WLASLDataset
+
+    data_cfg = cfg["data"]
+    aug_cfg = cfg.get("augmentation", {})
+
+    label_map = build_merged_label_map(
+        msasl_dir=data_cfg["msasl_dir"],
+        wlasl_json=data_cfg["wlasl_json"],
+        wlasl_video_dir=data_cfg["wlasl_video_dir"],
+        num_classes=data_cfg["num_classes"],
+        wlasl_kp_dir=data_cfg.get("wlasl_kp_dir"),
+        msasl_kp_dir=data_cfg.get("msasl_kp_dir"),
+    )
+
+    normalize = data_cfg.get("normalize_keypoints", True)
+    train_transform = KeypointAugmentor(aug_cfg) if aug_cfg.get("enabled", False) else None
+
+    # MS-ASL datasets
+    msasl_train = MSASLDataset(
+        data_dir=data_cfg["msasl_dir"],
+        split="train",
+        label_map=label_map,
+        num_frames=data_cfg["num_frames"],
+        cache_dir=data_cfg.get("msasl_kp_dir"),
+        normalize=normalize,
+        transform=train_transform,
+    )
+    msasl_val = MSASLDataset(
+        data_dir=data_cfg["msasl_dir"],
+        split="val",
+        label_map=label_map,
+        num_frames=data_cfg["num_frames"],
+        cache_dir=data_cfg.get("msasl_kp_dir"),
+        normalize=normalize,
+    )
+
+    # WLASL datasets — num_classes high enough to include all glosses
+    wlasl_shared = dict(
+        json_path=data_cfg["wlasl_json"],
+        video_dir=data_cfg["wlasl_video_dir"],
+        num_classes=2000,  # don't filter — label_map already selects
+        num_frames=data_cfg["num_frames"],
+        cache_dir=data_cfg.get("wlasl_kp_dir"),
+        label_map=label_map,
+        normalize=normalize,
+    )
+    wlasl_train = WLASLDataset(split="train", transform=train_transform, **wlasl_shared)
+    wlasl_val = WLASLDataset(split="val", **wlasl_shared)
+
+    # Concat
+    train_ds = ConcatDataset([msasl_train, wlasl_train])
+    val_ds = ConcatDataset([msasl_val, wlasl_val])
+
+    # Auto-split if val too small
+    val_split = data_cfg.get("val_split", 0.2)
+    if len(val_ds) < len(train_ds) * 0.1:
+        print(f"  Val set too small ({len(val_ds)}), splitting all data {1-val_split:.0%}/{val_split:.0%}")
+        all_ds = ConcatDataset([train_ds, val_ds])
+        total = len(all_ds)
+        val_size = int(total * val_split)
+        train_size = total - val_size
+        train_ds, val_ds = random_split(all_ds, [train_size, val_size])
+
+    print(f"\nMerged: {len(train_ds)} train, {len(val_ds)} val samples")
+    print(f"  MS-ASL: {len(msasl_train)} train, {len(msasl_val)} val")
+    print(f"  WLASL:  {len(wlasl_train)} train, {len(wlasl_val)} val")
 
     train_loader = DataLoader(
         train_ds,

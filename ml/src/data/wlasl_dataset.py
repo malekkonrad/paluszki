@@ -12,6 +12,7 @@ import torch
 from torch.utils.data import Dataset
 
 from src.data.keypoint_extractor import extract_keypoints_from_video
+from src.data.keypoint_normalization import normalize_keypoints
 from src.data.label_map import GlossLabelMap
 
 
@@ -44,10 +45,14 @@ class WLASLDataset(Dataset):
         num_frames: int = 32,
         cache_dir: str | Path | None = None,
         require_video: bool = True,
+        normalize: bool = False,
+        transform=None,
     ):
         self.video_dir = Path(video_dir)
         self.num_frames = num_frames
         self.label_map = label_map
+        self.normalize = normalize
+        self.transform = transform
         self.cache_dir = Path(cache_dir) if cache_dir else None
 
         if self.cache_dir:
@@ -102,8 +107,14 @@ class WLASLDataset(Dataset):
         video_id, gloss, label = self.samples[idx]
         keypoints = self._load_keypoints(video_id)
 
+        if self.normalize:
+            keypoints = normalize_keypoints(keypoints)
+
+        if self.transform is not None:
+            keypoints = self.transform(keypoints)
+
         return {
-            "frames": torch.from_numpy(keypoints),          # [T, 225]
+            "frames": torch.from_numpy(keypoints).float(),
             "label": label,
             "gloss": gloss,
             "video_id": video_id,
