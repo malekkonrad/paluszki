@@ -27,11 +27,17 @@ def parse_args():
 
 
 def _build_classification_loaders(cfg):
-    """Build train/val DataLoaders for WLASL classification."""
+    """Build train/val DataLoaders for WLASL or MS-ASL classification."""
     from src.data.label_map import GlossLabelMap
-    from src.data.wlasl_dataset import WLASLDataset
 
     data_cfg = cfg["data"]
+    dataset_type = data_cfg.get("dataset_type", "wlasl")
+
+    if dataset_type == "msasl":
+        return _build_msasl_loaders(cfg)
+
+    # Default: WLASL
+    from src.data.wlasl_dataset import WLASLDataset
 
     label_map = GlossLabelMap.from_wlasl_json(
         data_cfg["json_path"],
@@ -51,6 +57,55 @@ def _build_classification_loaders(cfg):
     val_ds = WLASLDataset(split="val", **shared)
 
     print(f"WLASL{data_cfg['num_classes']}: {len(train_ds)} train, {len(val_ds)} val samples")
+
+    train_loader = DataLoader(
+        train_ds,
+        batch_size=cfg["train"]["batch_size"],
+        shuffle=True,
+        num_workers=cfg["train"]["num_workers"],
+        collate_fn=classification_collate_fn,
+    )
+    val_loader = DataLoader(
+        val_ds,
+        batch_size=cfg["train"]["batch_size"],
+        shuffle=False,
+        num_workers=cfg["train"]["num_workers"],
+        collate_fn=classification_collate_fn,
+    )
+
+    return train_loader, val_loader, label_map
+
+
+def _build_msasl_loaders(cfg):
+    """Build train/val DataLoaders for MS-ASL classification."""
+    from src.data.keypoint_augmentation import KeypointAugmentor
+    from src.data.msasl_dataset import MSASLDataset, build_msasl_label_map
+
+    data_cfg = cfg["data"]
+    aug_cfg = cfg.get("augmentation", {})
+
+    label_map = build_msasl_label_map(
+        data_cfg["data_dir"],
+        num_classes=data_cfg["num_classes"],
+    )
+
+    normalize = data_cfg.get("normalize_keypoints", True)
+
+    # Augmentation only for training
+    train_transform = KeypointAugmentor(aug_cfg) if aug_cfg.get("enabled", False) else None
+
+    shared = dict(
+        data_dir=data_cfg["data_dir"],
+        num_frames=data_cfg["num_frames"],
+        cache_dir=data_cfg.get("keypoint_cache_dir"),
+        label_map=label_map,
+        normalize=normalize,
+    )
+
+    train_ds = MSASLDataset(split="train", transform=train_transform, **shared)
+    val_ds = MSASLDataset(split="val", **shared)
+
+    print(f"MS-ASL top-{data_cfg['num_classes']}: {len(train_ds)} train, {len(val_ds)} val samples")
 
     train_loader = DataLoader(
         train_ds,

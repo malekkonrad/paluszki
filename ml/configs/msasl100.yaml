@@ -1,0 +1,48 @@
+project:
+  name: sign-language-recognition
+  seed: 42
+  output_dir: artifacts/msasl100
+
+mlflow:
+  enabled: true
+  tracking_uri: file:./mlruns
+  experiment_name: msasl-baselines
+  run_name: keypoint_classifier_msasl100
+
+data:
+  task: classification
+  dataset_type: msasl
+  data_dir: datasets/ms-asl
+  keypoint_cache_dir: datasets/ms-asl/keypoints
+  num_classes: 100
+  num_frames: 32
+  normalize_keypoints: true
+
+model:
+  pipeline_name: keypoint_classifier
+  keypoint_dim: 225       # pose(99) + left_hand(63) + right_hand(63)
+  d_model: 256
+  nhead: 8
+  num_encoder_layers: 4
+  classifier_hidden: 512
+  dropout: 0.3
+  label_smoothing: 0.1
+  pooling: mean
+
+augmentation:
+  enabled: true
+  rotation_max_deg: 15
+  scale_range: [0.85, 1.15]
+  translate_max: 0.05
+  time_warp_range: [0.8, 1.2]
+  frame_drop_prob: 0.1
+  gaussian_std: 0.01
+  landmark_dropout_prob: 0.05
+
+train:
+  batch_size: 32
+  num_workers: 4
+  epochs: 100
+  lr: 0.0003
+  weight_decay: 0.01
+  device: cuda
