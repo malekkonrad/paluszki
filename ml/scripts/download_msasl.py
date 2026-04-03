@@ -73,12 +73,20 @@ def _video_id(sample: dict) -> str:
 # -- Download videos --------------------------------------------------------
 
 
-def _download_single(sample: dict, output_path: Path) -> bool:
+_error_counts: dict[str, int] = {}
+_MAX_ERROR_EXAMPLES = 5
+_errors_shown = 0
+
+
+def _download_single(sample: dict, output_path: Path, verbose: bool = False) -> bool:
     """Download a single clip from YouTube using yt-dlp.
 
-    Downloads the full video, then clips to start/end time and crops to
-    the bounding box provided by MS-ASL.
+    Two-step approach for reliability:
+    1. Download full video with yt-dlp (simple format selection)
+    2. Clip to start/end time + crop to bounding box with ffmpeg
     """
+    global _errors_shown
+
     if output_path.exists():
         return True
 
@@ -91,69 +99,100 @@ def _download_single(sample: dict, output_path: Path) -> bool:
         return False
 
     with tempfile.TemporaryDirectory() as tmp:
-        tmp_path = Path(tmp) / "raw.mp4"
-
-        # Download with yt-dlp, clipping to time range
+        # Step 1: Download full video with yt-dlp
+        raw_path = Path(tmp) / "full.%(ext)s"
         cmd = [
             "yt-dlp",
-            "--quiet", "--no-warnings",
-            "-f", "bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/best[height<=480][ext=mp4]/best",
-            "--download-sections", f"*{start_time}-{end_time}",
-            "--force-keyframes-at-cuts",
-            "-o", str(tmp_path),
+            "-f", "best[height<=480]/best",
+            "--no-playlist",
+            "--no-check-certificates",
+            "-o", str(raw_path),
             url,
         ]
 
         try:
-            subprocess.run(cmd, check=True, capture_output=True, timeout=120)
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=120,
+            )
+            if result.returncode != 0:
+                if _errors_shown < _MAX_ERROR_EXAMPLES:
+                    _errors_shown += 1
+                    stderr = result.stderr.strip().split("\n")[-1] if result.stderr else "unknown"
+                    print(f"    yt-dlp error ({url}): {stderr}")
+                return False
+        except subprocess.TimeoutExpired:
+            if _errors_shown < _MAX_ERROR_EXAMPLES:
+                _errors_shown += 1
+                print(f"    yt-dlp timeout ({url})")
             return False
 
-        if not tmp_path.exists():
+        # Find the downloaded file (extension varies)
+        downloaded = list(Path(tmp).glob("full.*"))
+        if not downloaded:
             return False
+        src_path = downloaded[0]
 
-        # Crop to bounding box using ffmpeg if box is provided
+        # Step 2: Clip + optionally crop with ffmpeg
         box = sample.get("box")
         width = sample.get("width", 640)
         height = sample.get("height", 360)
 
+        vf_filters = []
+
+        # Crop to bounding box if available
         if box and len(box) == 4:
             x1, y1, x2, y2 = box
-            crop_x = int(x1 * width)
-            crop_y = int(y1 * height)
+            crop_x = max(int(x1 * width), 0)
+            crop_y = max(int(y1 * height), 0)
             crop_w = int((x2 - x1) * width)
             crop_h = int((y2 - y1) * height)
-
-            # Ensure even dimensions (required by some codecs)
+            # Ensure even dimensions
             crop_w = max(crop_w - crop_w % 2, 2)
             crop_h = max(crop_h - crop_h % 2, 2)
+            vf_filters.append(f"crop={crop_w}:{crop_h}:{crop_x}:{crop_y}")
 
-            crop_path = Path(tmp) / "cropped.mp4"
-            crop_cmd = [
-                "ffmpeg", "-y", "-i", str(tmp_path),
-                "-vf", f"crop={crop_w}:{crop_h}:{crop_x}:{crop_y}",
-                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-                "-an",  # drop audio, we only need video
-                str(crop_path),
-            ]
-            try:
-                subprocess.run(crop_cmd, check=True, capture_output=True, timeout=60)
-                if crop_path.exists():
-                    shutil.move(str(crop_path), str(output_path))
-                    return True
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-                pass
+        # Always ensure even output dimensions
+        vf_filters.append("scale=trunc(iw/2)*2:trunc(ih/2)*2")
 
-        # Fallback: use uncropped clip
-        shutil.move(str(tmp_path), str(output_path))
-        return True
+        ffmpeg_cmd = [
+            "ffmpeg", "-y",
+            "-ss", str(start_time),
+            "-i", str(src_path),
+            "-t", str(duration),
+            "-vf", ",".join(vf_filters),
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-an",
+            str(output_path),
+        ]
+
+        try:
+            result = subprocess.run(
+                ffmpeg_cmd, capture_output=True, text=True, timeout=60,
+            )
+            if result.returncode != 0:
+                if _errors_shown < _MAX_ERROR_EXAMPLES:
+                    _errors_shown += 1
+                    stderr = result.stderr.strip().split("\n")[-1] if result.stderr else "unknown"
+                    print(f"    ffmpeg error: {stderr}")
+                return False
+        except subprocess.TimeoutExpired:
+            return False
+
+        return output_path.exists()
 
 
 def download_videos(num_classes: int, workers: int = 4):
     """Download videos for the top-N classes across all splits."""
-    if shutil.which("yt-dlp") is None:
-        print("yt-dlp not found. Install it: pip install yt-dlp")
-        sys.exit(1)
+    global _errors_shown
+
+    for tool in ["yt-dlp", "ffmpeg"]:
+        if shutil.which(tool) is None:
+            print(f"{tool} not found. Install it first.")
+            sys.exit(1)
+
+    # Check yt-dlp version
+    result = subprocess.run(["yt-dlp", "--version"], capture_output=True, text=True)
+    print(f"yt-dlp version: {result.stdout.strip()}")
 
     top_labels = get_top_n_labels(num_classes)
     classes = load_classes()
@@ -167,12 +206,18 @@ def download_videos(num_classes: int, workers: int = 4):
                 vid = _video_id(s)
                 all_samples[vid] = s
 
+    # Deduplicate by URL (same video, different clips)
+    unique_urls = set(s["url"] for s in all_samples.values())
+
     total = len(all_samples)
-    print(f"Top-{num_classes} classes: {total} unique clips to download")
+    print(f"Top-{num_classes} classes: {total} clips from {len(unique_urls)} unique YouTube videos")
 
     already = sum(1 for vid in all_samples if (VIDEO_DIR / f"{vid}.mp4").exists())
     if already:
         print(f"  Already downloaded: {already}")
+
+    print(f"  First errors will be shown for debugging:\n")
+    _errors_shown = 0
 
     downloaded = 0
     failed = 0
@@ -188,13 +233,20 @@ def download_videos(num_classes: int, workers: int = 4):
         else:
             failed += 1
 
-        if (i + 1) % 25 == 0:
+        if (i + 1) % 50 == 0:
             print(
                 f"  Progress: {i + 1}/{total} "
                 f"(downloaded={downloaded}, failed={failed}, cached={already})"
             )
 
     print(f"\nDone: {downloaded} new, {already} cached, {failed} failed out of {total}")
+
+    if failed > total * 0.8:
+        print("\n*** Most downloads failed. Common causes:")
+        print("  - Videos removed from YouTube (MS-ASL is from 2018-2019)")
+        print("  - yt-dlp needs update: pip install -U yt-dlp")
+        print("  - Network/geo restrictions")
+        print("  - Check errors above for details")
 
 
 # -- Validate ---------------------------------------------------------------
