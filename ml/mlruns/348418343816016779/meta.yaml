@@ -1,0 +1,7 @@
+artifact_location: file:///home/kmalek/paluszki/ml/mlruns/348418343816016779
+creation_time: 1775231709393
+experiment_id: '348418343816016779'
+last_update_time: 1775231709393
+lifecycle_stage: active
+name: msasl-baselines
+workspace: default
