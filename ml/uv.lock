@@ -389,6 +389,12 @@ wheels = [
 ]
 
 [[package]]
+name = "ffmpeg"
+version = "1.4"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f0/cc/3b7408b8ecf7c1d20ad480c3eaed7619857bf1054b690226e906fdf14258/ffmpeg-1.4.tar.gz", hash = "sha256:6931692c890ff21d39938433c2189747815dca0c60ddc7f9bb97f199dba0b5b9", size = 5055, upload-time = "2018-10-08T07:50:05.748Z" }
+
+[[package]]
 name = "filelock"
 version = "3.25.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1028,6 +1034,7 @@ name = "ml"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "ffmpeg" },
     { name = "gdown" },
     { name = "jiwer" },
     { name = "kaggle" },
@@ -1039,10 +1046,12 @@ dependencies = [
     { name = "sacrebleu" },
     { name = "torch" },
     { name = "torchvision" },
+    { name = "yt-dlp" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "ffmpeg", specifier = ">=1.4" },
     { name = "gdown", specifier = ">=5.2.1" },
     { name = "jiwer", specifier = ">=3.0.0" },
     { name = "kaggle", specifier = ">=2.0.0" },
@@ -1054,6 +1063,7 @@ requires-dist = [
     { name = "sacrebleu", specifier = ">=2.4.0" },
     { name = "torch", specifier = ">=2.10.0" },
     { name = "torchvision", specifier = ">=0.25.0" },
+    { name = "yt-dlp", specifier = ">=2026.3.17" },
 ]
 
 [[package]]
@@ -2378,6 +2388,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/61/f1/ee81806690a87dab5f5653c1f146c92bc066d7f4cebc603ef88eb9e13957/werkzeug-3.1.6.tar.gz", hash = "sha256:210c6bede5a420a913956b4791a7f4d6843a43b6fcee4dfa08a65e93007d0d25", size = 864736, upload-time = "2026-02-19T15:17:18.884Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/4d/ec/d58832f89ede95652fd01f4f24236af7d32b70cab2196dfcc2d2fd13c5c2/werkzeug-3.1.6-py3-none-any.whl", hash = "sha256:7ddf3357bb9564e407607f988f683d72038551200c704012bb9a4c523d42f131", size = 225166, upload-time = "2026-02-19T15:17:17.475Z" },
+]
+
+[[package]]
+name = "yt-dlp"
+version = "2026.3.17"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/8b/34/7c6b4e3f89cb6416d2cd7ab6dab141a1df97ab0fb22d15816db2c92148c9/yt_dlp-2026.3.17.tar.gz", hash = "sha256:ba7aa31d533f1ffccfe70e421596d7ca8ff0bf1398dc6bb658b7d9dec057d2c9", size = 3119221, upload-time = "2026-03-17T23:43:00.244Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/cd/13/5093bcb954878e50f7217fd2ab94282b53934022e4e4a03265582da83bf5/yt_dlp-2026.3.17-py3-none-any.whl", hash = "sha256:32992db94303a8a5d211a183f2174834fe7f8c29d83ed2e7a324eae97a8f26d8", size = 3315134, upload-time = "2026-03-17T23:42:57.863Z" },
 ]
 
 [[package]]

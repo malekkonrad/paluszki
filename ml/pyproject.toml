@@ -16,4 +16,6 @@ dependencies = [
     "jiwer>=3.0.0",
     "mediapipe==0.10.21",
     "kaggle>=2.0.0",
+    "yt-dlp>=2026.3.17",
+    "ffmpeg>=1.4",
 ]
