@@ -1,0 +1,14 @@
+artifact_uri: file:///home/kmalek/paluszki/ml/mlruns/348418343816016779/7dbcff1c7bae452184dbf08f5328dcf2/artifacts
+end_time: 1775287155189
+entry_point_name: ''
+experiment_id: '348418343816016779'
+lifecycle_stage: active
+run_id: 7dbcff1c7bae452184dbf08f5328dcf2
+run_name: keypoint_classifier_msasl25
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1775287110642
+status: 3
+tags: []
+user_id: kmalek
