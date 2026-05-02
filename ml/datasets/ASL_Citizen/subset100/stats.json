@@ -1,0 +1,502 @@
+{
+  "FINE1": {
+    "train": 19,
+    "val": 4,
+    "test": 16
+  },
+  "THEY1": {
+    "train": 18,
+    "val": 3,
+    "test": 15
+  },
+  "EAT1": {
+    "train": 18,
+    "val": 4,
+    "test": 17
+  },
+  "BABY2": {
+    "train": 17,
+    "val": 3,
+    "test": 11
+  },
+  "HOW1": {
+    "train": 17,
+    "val": 3,
+    "test": 11
+  },
+  "NIGHT1": {
+    "train": 17,
+    "val": 5,
+    "test": 17
+  },
+  "EASY": {
+    "train": 17,
+    "val": 3,
+    "test": 11
+  },
+  "THANKYOU": {
+    "train": 16,
+    "val": 3,
+    "test": 12
+  },
+  "NO": {
+    "train": 16,
+    "val": 3,
+    "test": 11
+  },
+  "OK": {
+    "train": 16,
+    "val": 5,
+    "test": 10
+  },
+  "WE": {
+    "train": 16,
+    "val": 3,
+    "test": 12
+  },
+  "YOUR": {
+    "train": 16,
+    "val": 4,
+    "test": 11
+  },
+  "BROTHER": {
+    "train": 16,
+    "val": 3,
+    "test": 13
+  },
+  "GIRL": {
+    "train": 16,
+    "val": 3,
+    "test": 11
+  },
+  "PEOPLE": {
+    "train": 16,
+    "val": 3,
+    "test": 12
+  },
+  "WHAT1": {
+    "train": 16,
+    "val": 3,
+    "test": 13
+  },
+  "WANT1": {
+    "train": 16,
+    "val": 4,
+    "test": 12
+  },
+  "HATE": {
+    "train": 16,
+    "val": 4,
+    "test": 11
+  },
+  "MEET": {
+    "train": 16,
+    "val": 3,
+    "test": 10
+  },
+  "STOP": {
+    "train": 16,
+    "val": 3,
+    "test": 12
+  },
+  "TAKE": {
+    "train": 16,
+    "val": 3,
+    "test": 11
+  },
+  "BUY": {
+    "train": 16,
+    "val": 4,
+    "test": 11
+  },
+  "WRITE": {
+    "train": 16,
+    "val": 3,
+    "test": 12
+  },
+  "THINK": {
+    "train": 16,
+    "val": 3,
+    "test": 12
+  },
+  "SCHOOL": {
+    "train": 16,
+    "val": 3,
+    "test": 11
+  },
+  "COUNTRY": {
+    "train": 16,
+    "val": 3,
+    "test": 12
+  },
+  "TOMORROW": {
+    "train": 16,
+    "val": 4,
+    "test": 10
+  },
+  "YESTERDAY": {
+    "train": 16,
+    "val": 3,
+    "test": 11
+  },
+  "LATER": {
+    "train": 16,
+    "val": 4,
+    "test": 12
+  },
+  "DAY": {
+    "train": 16,
+    "val": 3,
+    "test": 10
+  },
+  "HOT": {
+    "train": 16,
+    "val": 4,
+    "test": 11
+  },
+  "BUSY": {
+    "train": 16,
+    "val": 3,
+    "test": 12
+  },
+  "NICE": {
+    "train": 16,
+    "val": 3,
+    "test": 12
+  },
+  "SMALL": {
+    "train": 16,
+    "val": 3,
+    "test": 12
+  },
+  "FAST": {
+    "train": 16,
+    "val": 3,
+    "test": 12
+  },
+  "FEW": {
+    "train": 16,
+    "val": 3,
+    "test": 13
+  },
+  "ALWAYS": {
+    "train": 16,
+    "val": 5,
+    "test": 10
+  },
+  "BYE": {
+    "train": 15,
+    "val": 3,
+    "test": 12
+  },
+  "SORRY": {
+    "train": 15,
+    "val": 3,
+    "test": 12
+  },
+  "WELCOME1": {
+    "train": 15,
+    "val": 4,
+    "test": 12
+  },
+  "YES": {
+    "train": 15,
+    "val": 5,
+    "test": 10
+  },
+  "YOU": {
+    "train": 15,
+    "val": 4,
+    "test": 12
+  },
+  "FRIEND": {
+    "train": 15,
+    "val": 3,
+    "test": 11
+  },
+  "FAMILY": {
+    "train": 15,
+    "val": 3,
+    "test": 12
+  },
+  "MAN": {
+    "train": 15,
+    "val": 4,
+    "test": 12
+  },
+  "DOCTOR2": {
+    "train": 15,
+    "val": 4,
+    "test": 12
+  },
+  "NEED": {
+    "train": 15,
+    "val": 3,
+    "test": 12
+  },
+  "LIKE": {
+    "train": 15,
+    "val": 3,
+    "test": 12
+  },
+  "GO": {
+    "train": 15,
+    "val": 3,
+    "test": 13
+  },
+  "COME": {
+    "train": 15,
+    "val": 3,
+    "test": 12
+  },
+  "STUDY": {
+    "train": 15,
+    "val": 3,
+    "test": 12
+  },
+  "LEARN": {
+    "train": 15,
+    "val": 4,
+    "test": 12
+  },
+  "REMEMBER2": {
+    "train": 15,
+    "val": 3,
+    "test": 13
+  },
+  "FINISH": {
+    "train": 15,
+    "val": 3,
+    "test": 14
+  },
+  "SEE": {
+    "train": 15,
+    "val": 3,
+    "test": 13
+  },
+  "HEAR2": {
+    "train": 15,
+    "val": 4,
+    "test": 12
+  },
+  "TELL": {
+    "train": 15,
+    "val": 3,
+    "test": 12
+  },
+  "GIVE": {
+    "train": 15,
+    "val": 4,
+    "test": 11
+  },
+  "FEEL": {
+    "train": 15,
+    "val": 4,
+    "test": 12
+  },
+  "MONEY2": {
+    "train": 15,
+    "val": 3,
+    "test": 13
+  },
+  "CAR": {
+    "train": 15,
+    "val": 3,
+    "test": 11
+  },
+  "BOOK": {
+    "train": 15,
+    "val": 4,
+    "test": 12
+  },
+  "COMPUTER": {
+    "train": 15,
+    "val": 4,
+    "test": 11
+  },
+  "CITY2": {
+    "train": 15,
+    "val": 3,
+    "test": 13
+  },
+  "TODAY": {
+    "train": 15,
+    "val": 4,
+    "test": 11
+  },
+  "NOW": {
+    "train": 15,
+    "val": 3,
+    "test": 12
+  },
+  "MONTH": {
+    "train": 15,
+    "val": 4,
+    "test": 11
+  },
+  "YEAR": {
+    "train": 15,
+    "val": 4,
+    "test": 12
+  },
+  "TIME": {
+    "train": 15,
+    "val": 4,
+    "test": 12
+  },
+  "HAPPY": {
+    "train": 15,
+    "val": 4,
+    "test": 12
+  },
+  "HUNGRY": {
+    "train": 15,
+    "val": 4,
+    "test": 12
+  },
+  "GOOD": {
+    "train": 15,
+    "val": 4,
+    "test": 12
+  },
+  "COLD": {
+    "train": 15,
+    "val": 4,
+    "test": 12
+  },
+  "BORED1": {
+    "train": 15,
+    "val": 4,
+    "test": 12
+  },
+  "BIG": {
+    "train": 15,
+    "val": 4,
+    "test": 12
+  },
+  "MORE": {
+    "train": 15,
+    "val": 4,
+    "test": 12
+  },
+  "SLOW": {
+    "train": 15,
+    "val": 3,
+    "test": 14
+  },
+  "ALL": {
+    "train": 15,
+    "val": 3,
+    "test": 13
+  },
+  "EVERYTHING": {
+    "train": 15,
+    "val": 3,
+    "test": 12
+  },
+  "NEVER": {
+    "train": 15,
+    "val": 3,
+    "test": 13
+  },
+  "DIFFERENT": {
+    "train": 15,
+    "val": 4,
+    "test": 12
+  },
+  "HARD": {
+    "train": 15,
+    "val": 4,
+    "test": 12
+  },
+  "HELLO": {
+    "train": 14,
+    "val": 4,
+    "test": 14
+  },
+  "PLEASE": {
+    "train": 14,
+    "val": 4,
+    "test": 13
+  },
+  "MAYBE": {
+    "train": 14,
+    "val": 4,
+    "test": 14
+  },
+  "HE": {
+    "train": 14,
+    "val": 4,
+    "test": 12
+  },
+  "MOTHER": {
+    "train": 14,
+    "val": 3,
+    "test": 15
+  },
+  "FATHER": {
+    "train": 14,
+    "val": 3,
+    "test": 12
+  },
+  "SISTER": {
+    "train": 14,
+    "val": 5,
+    "test": 12
+  },
+  "BOY": {
+    "train": 14,
+    "val": 6,
+    "test": 12
+  },
+  "WOMAN2": {
+    "train": 14,
+    "val": 5,
+    "test": 11
+  },
+  "NAME": {
+    "train": 14,
+    "val": 4,
+    "test": 14
+  },
+  "TEACHER": {
+    "train": 14,
+    "val": 4,
+    "test": 13
+  },
+  "STUDENT": {
+    "train": 14,
+    "val": 4,
+    "test": 12
+  },
+  "WHERE": {
+    "train": 14,
+    "val": 4,
+    "test": 13
+  },
+  "WHEN": {
+    "train": 14,
+    "val": 4,
+    "test": 13
+  },
+  "WHO": {
+    "train": 14,
+    "val": 4,
+    "test": 14
+  },
+  "WHY": {
+    "train": 14,
+    "val": 4,
+    "test": 14
+  },
+  "WHICH": {
+    "train": 14,
+    "val": 4,
+    "test": 14
+  },
+  "DRINK2": {
+    "train": 14,
+    "val": 5,
+    "test": 11
+  }
+}

@@ -21,6 +21,8 @@ class Trainer:
         mlflow_logger=None,
         max_eval_samples=32,
         task_type="translation",
+        scheduler=None,
+        early_stopping_patience=0,
     ):
         self.model = model
         self.optimizer = optimizer
@@ -33,6 +35,9 @@ class Trainer:
         self.best_val_loss = float("inf")
         self.max_eval_samples = max_eval_samples
         self.task_type = task_type
+        self.scheduler = scheduler
+        self.early_stopping_patience = early_stopping_patience
+        self._epochs_since_improve = 0
 
     def _move_batch_to_device(self, batch):
         batch["frames"] = batch["frames"].to(self.device)
@@ -167,6 +172,10 @@ class Trainer:
             train_metrics = self.train_one_epoch()
             val_metrics = self.validate()
 
+            if self.scheduler is not None:
+                self.scheduler.step()
+                train_metrics["lr"] = self.optimizer.param_groups[0]["lr"]
+
             print(self._format_epoch_line(epoch, epochs, train_metrics, val_metrics))
 
             if self.mlflow_logger:
@@ -175,10 +184,22 @@ class Trainer:
 
             if val_metrics["val_loss"] < self.best_val_loss:
                 self.best_val_loss = val_metrics["val_loss"]
+                self._epochs_since_improve = 0
                 ckpt_path = self.save_checkpoint("best_model.pt")
                 print(f"Saved best checkpoint: {ckpt_path}")
                 if self.mlflow_logger:
                     self.mlflow_logger.log_artifact(ckpt_path)
+            else:
+                self._epochs_since_improve += 1
+                if (
+                    self.early_stopping_patience > 0
+                    and self._epochs_since_improve >= self.early_stopping_patience
+                ):
+                    print(
+                        f"Early stopping at epoch {epoch + 1}: "
+                        f"val_loss hasn't improved for {self.early_stopping_patience} epochs."
+                    )
+                    break
 
         last_ckpt = self.save_checkpoint("last_model.pt")
         if self.mlflow_logger:

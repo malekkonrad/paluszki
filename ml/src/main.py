@@ -1,4 +1,5 @@
 import argparse
+from pathlib import Path
 
 import pandas as pd
 import torch
@@ -37,6 +38,8 @@ def _build_classification_loaders(cfg):
         return _build_merged_loaders(cfg)
     if dataset_type == "msasl":
         return _build_msasl_loaders(cfg)
+    if dataset_type == "asl_citizen":
+        return _build_asl_citizen_loaders(cfg)
 
     # Default: WLASL
     from src.data.wlasl_dataset import WLASLDataset
@@ -124,6 +127,63 @@ def _build_msasl_loaders(cfg):
         train_ds, val_ds = random_split(train_ds, [train_size, val_size])
 
     print(f"MS-ASL top-{data_cfg['num_classes']}: {len(train_ds)} train, {len(val_ds)} val samples")
+
+    train_loader = DataLoader(
+        train_ds,
+        batch_size=cfg["train"]["batch_size"],
+        shuffle=True,
+        num_workers=cfg["train"]["num_workers"],
+        collate_fn=classification_collate_fn,
+    )
+    val_loader = DataLoader(
+        val_ds,
+        batch_size=cfg["train"]["batch_size"],
+        shuffle=False,
+        num_workers=cfg["train"]["num_workers"],
+        collate_fn=classification_collate_fn,
+    )
+
+    return train_loader, val_loader, label_map
+
+
+def _build_asl_citizen_loaders(cfg):
+    """Build train/val DataLoaders for the ASL Citizen subset.
+
+    Expects ``data.subset_dir`` to point at the directory produced by
+    ``scripts/build_asl_citizen_subset.py`` (containing ``label_map.json``
+    and filtered ``train.csv`` / ``val.csv`` / ``test.csv``).
+    """
+    from src.data.asl_citizen_dataset import ASLCitizenDataset
+    from src.data.keypoint_augmentation import KeypointAugmentor
+    from src.data.label_map import GlossLabelMap
+
+    data_cfg = cfg["data"]
+    aug_cfg = cfg.get("augmentation", {})
+
+    subset_dir = Path(data_cfg["subset_dir"])
+    label_map = GlossLabelMap.load(subset_dir / "label_map.json")
+
+    print(f"\nASL Citizen: {len(label_map)} classes")
+    for i, gloss in enumerate(label_map.glosses):
+        print(f"  {i:3d}. {gloss}")
+
+    normalize = data_cfg.get("normalize_keypoints", True)
+    train_transform = KeypointAugmentor(aug_cfg) if aug_cfg.get("enabled", False) else None
+
+    shared = dict(
+        video_dir=data_cfg["video_dir"],
+        label_map=label_map,
+        num_frames=data_cfg["num_frames"],
+        cache_dir=data_cfg.get("keypoint_cache_dir"),
+        normalize=normalize,
+    )
+
+    train_ds = ASLCitizenDataset(
+        csv_path=subset_dir / "train.csv", transform=train_transform, **shared,
+    )
+    val_ds = ASLCitizenDataset(csv_path=subset_dir / "val.csv", **shared)
+
+    print(f"ASL Citizen: {len(train_ds)} train, {len(val_ds)} val samples")
 
     train_loader = DataLoader(
         train_ds,
@@ -320,6 +380,30 @@ def _build_translation_loaders(cfg):
     return train_loader, val_loader, tokenizer
 
 
+def _build_scheduler(optimizer, cfg):
+    """Build an LR scheduler from config. Returns None if disabled."""
+    name = cfg["train"].get("scheduler", "none")
+    if name in (None, "none", "None", False):
+        return None
+
+    epochs = cfg["train"]["epochs"]
+    if name == "cosine":
+        warmup = cfg["train"].get("warmup_epochs", 0)
+        if warmup > 0:
+            warmup_sched = torch.optim.lr_scheduler.LinearLR(
+                optimizer, start_factor=1e-3, end_factor=1.0, total_iters=warmup,
+            )
+            cosine_sched = torch.optim.lr_scheduler.CosineAnnealingLR(
+                optimizer, T_max=max(epochs - warmup, 1),
+            )
+            return torch.optim.lr_scheduler.SequentialLR(
+                optimizer, schedulers=[warmup_sched, cosine_sched], milestones=[warmup],
+            )
+        return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+
+    raise ValueError(f"Unknown scheduler: {name}")
+
+
 def main():
     args = parse_args()
     cfg = load_config(args.config)
@@ -352,6 +436,8 @@ def main():
         weight_decay=cfg["train"]["weight_decay"],
     )
 
+    scheduler = _build_scheduler(optimizer, cfg)
+
     mlflow_logger = MLFlowLogger(cfg)
     mlflow_logger.start_run()
     mlflow_logger.log_params(cfg)
@@ -371,6 +457,8 @@ def main():
         output_dir=output_dir,
         mlflow_logger=mlflow_logger,
         task_type=task_type,
+        scheduler=scheduler,
+        early_stopping_patience=cfg["train"].get("early_stopping_patience", 0),
     )
 
     trainer.fit(cfg["train"]["epochs"])
