@@ -1,0 +1,7 @@
+artifact_location: file:///home/kmalek/paluszki/ml/mlruns/570922499282206861
+creation_time: 1777752447602
+experiment_id: '570922499282206861'
+last_update_time: 1777752447602
+lifecycle_stage: active
+name: asl-citizen-baselines
+workspace: default

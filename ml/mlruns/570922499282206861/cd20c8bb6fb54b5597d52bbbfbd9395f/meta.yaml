@@ -1,0 +1,14 @@
+artifact_uri: file:///home/kmalek/paluszki/ml/mlruns/570922499282206861/cd20c8bb6fb54b5597d52bbbfbd9395f/artifacts
+end_time: 1777753159519
+entry_point_name: ''
+experiment_id: '570922499282206861'
+lifecycle_stage: active
+run_id: cd20c8bb6fb54b5597d52bbbfbd9395f
+run_name: keypoint_classifier_asl_citizen100
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1777752447632
+status: 3
+tags: []
+user_id: kmalek

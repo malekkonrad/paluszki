@@ -15,3 +15,7 @@ ml/datasets/WLASL/videos
 ml/datasets/WLASL/keypoints
 ml/datasets/ms-asl/videos
 ml/datasets/ms-asl/keypoints
+ml/datasets/ASL_Citizen/videos
+ml/datasets/ASL_Citizen.zip
+ml/datasets/ASL_Citizen/keypoints
+ml/datasets/ASL_Citizen/.ipynb_checkpoints/
