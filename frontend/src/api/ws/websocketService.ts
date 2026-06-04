@@ -106,6 +106,13 @@ class WebSocketService {
     });
   }
 
+  sendVideoFrame(frameB64: string, ts: number): void {
+    this.sendMessage({
+      type: 'video_frame',
+      payload: { frameB64, ts },
+    });
+  }
+
   on(type: WsMessageType | 'all', callback: MessageCallback): () => void {
     const key = type;
     if (!this.listeners.has(key)) {

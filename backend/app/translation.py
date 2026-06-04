@@ -17,6 +17,14 @@ class TranslationService(ABC):
         """Process a single video frame and return the translation result."""
         ...
 
+    async def tick(self, task: TranslationTask) -> TranslationResult:
+        """Periodic poke with no new frame, so pause-based flushing can fire.
+
+        Default: no-op (returns an empty result). Stateful services override."""
+        return TranslationResult(
+            meeting_code=task.meeting_code, user_id=task.user_id, text=None
+        )
+
     @abstractmethod
     async def initialize(self) -> None:
         """Initialize the model (load weights, etc.)"""
@@ -54,49 +62,63 @@ class StubTranslationService(TranslationService):
 
 class TranslationManager:
     """
-    Manages TranslationService instances per meeting.
+    Manages TranslationService instances per (meeting, user) — each user
+    streams their own video, so each gets an independent stateful pipeline.
     Similar pattern to DatabaseSessionManager — one global instance.
 
     Usage:
-        translation_manager.register(meeting_code)    # on meeting create
-        service = translation_manager.get(meeting_code)
+        service = await translation_manager.get_or_register(meeting_code, user_id)
         result = await service.process_frame(task)
-        translation_manager.unregister(meeting_code)   # on meeting end
+        await translation_manager.unregister(meeting_code, user_id)   # on leave
+        await translation_manager.unregister_meeting(meeting_code)    # on end
     """
 
     def __init__(self):
-        self._services: dict[str, TranslationService] = {}
+        self._services: dict[tuple[str, int], TranslationService] = {}
         self._factory: type[TranslationService] = StubTranslationService
 
     def set_factory(self, factory: type[TranslationService]) -> None:
-        """Set the TranslationService class to instantiate for new meetings."""
+        """Set the TranslationService class to instantiate for new sessions."""
         self._factory = factory
 
-    async def register(self, meeting_code: str) -> TranslationService:
-        """Create and initialize a TranslationService for a meeting."""
-        if meeting_code in self._services:
-            return self._services[meeting_code]
+    async def register(self, meeting_code: str, user_id: int) -> TranslationService:
+        """Create and initialize a TranslationService for a (meeting, user)."""
+        key = (meeting_code, user_id)
+        if key in self._services:
+            return self._services[key]
         service = self._factory()
         await service.initialize()
-        self._services[meeting_code] = service
-        logger.info(f"[TranslationManager] Registered service for meeting {meeting_code}")
+        self._services[key] = service
+        logger.info(f"[TranslationManager] Registered service for {key}")
         return service
 
-    def get(self, meeting_code: str) -> TranslationService | None:
-        """Get the TranslationService for a meeting, or None if not registered."""
-        return self._services.get(meeting_code)
+    async def get_or_register(self, meeting_code: str, user_id: int) -> TranslationService:
+        """Return the existing service or create one if absent."""
+        existing = self.get(meeting_code, user_id)
+        if existing is not None:
+            return existing
+        return await self.register(meeting_code, user_id)
 
-    async def unregister(self, meeting_code: str) -> None:
-        """Shut down and remove the TranslationService for a meeting."""
-        service = self._services.pop(meeting_code, None)
+    def get(self, meeting_code: str, user_id: int) -> TranslationService | None:
+        """Get the service for a (meeting, user), or None if not registered."""
+        return self._services.get((meeting_code, user_id))
+
+    async def unregister(self, meeting_code: str, user_id: int) -> None:
+        """Shut down and remove the service for a (meeting, user)."""
+        service = self._services.pop((meeting_code, user_id), None)
         if service is not None:
             await service.shutdown()
-            logger.info(f"[TranslationManager] Unregistered service for meeting {meeting_code}")
+            logger.info(f"[TranslationManager] Unregistered service for {(meeting_code, user_id)}")
+
+    async def unregister_meeting(self, meeting_code: str) -> None:
+        """Shut down all sessions belonging to a meeting (last user left)."""
+        for code, user_id in [k for k in self._services if k[0] == meeting_code]:
+            await self.unregister(code, user_id)
 
     async def shutdown_all(self) -> None:
         """Shut down all active services. Called during app shutdown."""
-        for code in list(self._services.keys()):
-            await self.unregister(code)
+        for code, user_id in list(self._services.keys()):
+            await self.unregister(code, user_id)
 
 
 # Global singleton — same pattern as sessionmanager / connection_manager

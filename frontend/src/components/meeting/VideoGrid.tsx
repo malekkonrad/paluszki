@@ -14,6 +14,8 @@ interface VideoGridProps {
   debugStream: MediaStream | null;
   isDebugActive: boolean;
   currentUserName: string;
+  localUserId: string;
+  getTranslationFor: (userId: string) => { text: string } | null;
 }
 
 interface VideoTileProps {
@@ -22,9 +24,10 @@ interface VideoTileProps {
   isMuted?: boolean;
   isCameraOff?: boolean;
   isLocal?: boolean;
+  caption?: string | null;
 }
 
-const VideoTile = ({ stream, name, isMuted, isCameraOff, isLocal }: VideoTileProps) => {
+const VideoTile = ({ stream, name, isMuted, isCameraOff, isLocal, caption }: VideoTileProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -133,6 +136,40 @@ const VideoTile = ({ stream, name, isMuted, isCameraOff, isLocal }: VideoTilePro
           </Box>
         )}
       </Box>
+
+      {/* Sign-language translation caption (subtitle style) */}
+      {caption && (
+        <Box
+          sx={{
+            position: 'absolute',
+            bottom: '10%',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            maxWidth: '90%',
+            px: 1.5,
+            py: 0.75,
+            borderRadius: 1.5,
+            bgcolor: 'rgba(0, 0, 0, 0.7)',
+            backdropFilter: 'blur(4px)',
+          }}
+        >
+          <Typography
+            sx={{
+              color: '#fff',
+              fontSize: '0.95rem',
+              fontWeight: 500,
+              lineHeight: 1.3,
+              textAlign: 'center',
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
+            }}
+          >
+            {caption}
+          </Typography>
+        </Box>
+      )}
     </Paper>
   );
 };
@@ -146,6 +183,8 @@ const VideoGrid = ({
   debugStream,
   isDebugActive,
   currentUserName,
+  localUserId,
+  getTranslationFor,
 }: VideoGridProps) => {
   const debugVideoRef = useRef<HTMLVideoElement>(null);
   const totalParticipants = 1 + remoteStreams.size;
@@ -181,6 +220,7 @@ const VideoGrid = ({
           isMuted={isMuted}
           isCameraOff={isCameraOff}
           isLocal
+          caption={getTranslationFor(localUserId)?.text ?? null}
         />
 
         {/* Remote videos */}
@@ -189,6 +229,7 @@ const VideoGrid = ({
             key={peerId}
             stream={stream}
             name={peerNames.get(peerId) || 'Uczestnik'}
+            caption={getTranslationFor(peerId)?.text ?? null}
           />
         ))}
       </Box>

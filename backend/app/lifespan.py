@@ -1,4 +1,5 @@
 import logging
+import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
@@ -17,6 +18,16 @@ async def lifespan(_app: FastAPI):
         logger.critical("DEBUG MODE IS ON")
         logger.critical("Make sure to not use it on production.")
         await sessionmanager.reset_db()
+
+    if os.getenv("PALUSZKI_TRANSLATION_ENABLED") == "1":
+        # Real ML pipeline (torch + MediaPipe + Ollama). Imported lazily so
+        # the backend still starts without the ML deps when disabled.
+        from app.translation_real import SignTranslationService
+
+        translation_manager.set_factory(SignTranslationService)
+        logger.info("[lifespan] Sign-translation factory enabled (real pipeline)")
+    else:
+        logger.info("[lifespan] Translation disabled — using stub (set PALUSZKI_TRANSLATION_ENABLED=1 to enable)")
 
     yield
 

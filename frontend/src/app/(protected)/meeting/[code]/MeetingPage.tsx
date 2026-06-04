@@ -6,6 +6,8 @@ import { Box, Snackbar, Alert } from '@mui/material';
 import { useAuth } from '@/hooks/useAuth';
 import { useWebRTC } from '@/hooks/useWebRTC';
 import { useDebugStream } from '@/hooks/useDebugStream';
+import { useSignTranslationCapture } from '@/hooks/useSignTranslationCapture';
+import { useTranslationOverlay } from '@/hooks/useTranslationOverlay';
 import VideoGrid from '@/components/meeting/VideoGrid';
 import ChatPanel from '@/components/meeting/ChatPanel';
 import MeetingControls from '@/components/meeting/MeetingControls';
@@ -40,6 +42,10 @@ const MeetingPage = ({ code }: MeetingPageProps) => {
   });
 
   const { debugStream, isDebugActive, toggleDebug } = useDebugStream(code || '');
+
+  const [isTranslationActive, setIsTranslationActive] = useState(false);
+  const { getTranslationFor } = useTranslationOverlay();
+  useSignTranslationCapture({ localStream, enabled: isTranslationActive });
 
   const [messages, setMessages] = useState<IChatMessage[]>([]);
   const [waitingParticipants, setWaitingParticipants] = useState<IParticipant[]>([]);
@@ -208,6 +214,18 @@ const MeetingPage = ({ code }: MeetingPageProps) => {
     setSnackbar({ open: true, message: 'Link skopiowany do schowka', severity: 'success' });
   }, []);
 
+  const handleToggleTranslation = useCallback(() => {
+    setIsTranslationActive((prev) => {
+      const next = !prev;
+      setSnackbar({
+        open: true,
+        message: next ? 'Tłumaczenie języka migowego włączone' : 'Tłumaczenie wyłączone',
+        severity: 'info',
+      });
+      return next;
+    });
+  }, []);
+
   // If waiting for approval
   if (isWaiting) {
     return (
@@ -278,6 +296,8 @@ const MeetingPage = ({ code }: MeetingPageProps) => {
             debugStream={debugStream}
             isDebugActive={isDebugActive}
             currentUserName={currentUserName}
+            localUserId={user?.id || ''}
+            getTranslationFor={getTranslationFor}
           />
 
           {/* Controls */}
@@ -292,9 +312,11 @@ const MeetingPage = ({ code }: MeetingPageProps) => {
               isMuted={isMuted}
               isCameraOff={isCameraOff}
               isDebugActive={isDebugActive}
+              isTranslationActive={isTranslationActive}
               onToggleMute={toggleMute}
               onToggleCamera={toggleCamera}
               onToggleDebug={toggleDebug}
+              onToggleTranslation={handleToggleTranslation}
               onScreenShare={handleScreenShare}
               onEndCall={handleEndCall}
               onCopyLink={handleCopyLink}

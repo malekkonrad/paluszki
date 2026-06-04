@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.connection_manager import connection_manager
 from app.database import get_db
 from app.models.participant import ParticipantStatus
 from app.models.user import User
@@ -11,6 +12,7 @@ from app.schemas.meeting import (
     MeetingResponse,
 )
 from app.schemas.chat import ChatMessageResponse
+from app.schemas.ws import WsMessageType, make_participant_status
 from app.utils.auth.jwt import get_current_user
 
 router = APIRouter(prefix="/meetings", tags=["Meetings"])
@@ -106,6 +108,9 @@ async def approve_participant(
     participant = await meeting_repo.update_participant_status(db, meeting.id, user_id, ParticipantStatus.approved)
     if participant is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Uczestnik nie znaleziony")
+    # Notify the guest over WS so their client leaves the waiting screen.
+    msg = make_participant_status(WsMessageType.PARTICIPANT_APPROVED, user_id)
+    await connection_manager.send_to_user(code, user_id, msg.model_dump())
     return {"status": "approved"}
 
 
@@ -132,6 +137,9 @@ async def reject_participant(
     participant = await meeting_repo.update_participant_status(db, meeting.id, user_id, ParticipantStatus.rejected)
     if participant is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Uczestnik nie znaleziony")
+    # Notify the guest over WS so their client leaves the waiting screen.
+    msg = make_participant_status(WsMessageType.PARTICIPANT_REJECTED, user_id)
+    await connection_manager.send_to_user(code, user_id, msg.model_dump())
     return {"status": "rejected"}
 
 

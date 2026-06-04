@@ -8,15 +8,18 @@ import {
   ScreenShare as ScreenShareIcon,
   BugReport as BugReportIcon,
   ContentCopy as CopyIcon,
+  Translate as TranslateIcon,
 } from '@mui/icons-material';
 
 interface MeetingControlsProps {
   isMuted: boolean;
   isCameraOff: boolean;
   isDebugActive: boolean;
+  isTranslationActive: boolean;
   onToggleMute: () => void;
   onToggleCamera: () => void;
   onToggleDebug: () => void;
+  onToggleTranslation: () => void;
   onScreenShare: () => void;
   onEndCall: () => void;
   onCopyLink: () => void;
@@ -26,9 +29,11 @@ const MeetingControls = ({
   isMuted,
   isCameraOff,
   isDebugActive,
+  isTranslationActive,
   onToggleMute,
   onToggleCamera,
   onToggleDebug,
+  onToggleTranslation,
   onScreenShare,
   onEndCall,
   onCopyLink,
@@ -105,6 +110,32 @@ const MeetingControls = ({
           }}
         >
           <ScreenShareIcon />
+        </IconButton>
+      </Tooltip>
+
+      {/* Sign-language translation */}
+      <Tooltip title={isTranslationActive ? 'Wyłącz tłumaczenie migowego' : 'Włącz tłumaczenie migowego'}>
+        <IconButton
+          onClick={onToggleTranslation}
+          sx={{
+            width: 52,
+            height: 52,
+            bgcolor: isTranslationActive
+              ? 'rgba(124, 77, 255, 0.18)'
+              : 'rgba(255, 255, 255, 0.08)',
+            border: isTranslationActive
+              ? '2px solid rgba(124, 77, 255, 0.4)'
+              : '2px solid rgba(255, 255, 255, 0.08)',
+            color: isTranslationActive ? '#7C4DFF' : '#E8EAED',
+            '&:hover': {
+              bgcolor: isTranslationActive
+                ? 'rgba(124, 77, 255, 0.28)'
+                : 'rgba(255, 255, 255, 0.12)',
+              transform: 'scale(1.1)',
+            },
+          }}
+        >
+          <TranslateIcon />
         </IconButton>
       </Tooltip>
 

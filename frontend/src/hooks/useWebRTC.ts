@@ -170,6 +170,11 @@ export const useWebRTC = ({ meetingCode, token, userId }: UseWebRTCOptions): Use
     const ws = WebSocketService.getInstance();
     wsRef.current = ws;
 
+    // Connect as soon as we're in the meeting — independent of the camera.
+    // The WS carries presence/approval/chat, which must work even if the
+    // local camera is unavailable (e.g. a second browser on the same machine
+    // can't grab the one webcam). Media tracks are attached separately, with
+    // renegotiation once the local stream arrives (see effect below).
     if (meetingCode && token) {
       ws.connect(meetingCode, token);
       const unsubscribe = ws.on('all', handleWsMessage);
@@ -182,6 +187,30 @@ export const useWebRTC = ({ meetingCode, token, userId }: UseWebRTCOptions): Use
       };
     }
   }, [meetingCode, token, handleWsMessage]);
+
+  // If the local stream becomes available after a peer connection was already
+  // created (e.g. a guest whose camera resolved after the host's offer
+  // arrived), attach our tracks to existing peers and renegotiate — otherwise
+  // the remote never receives our video.
+  useEffect(() => {
+    if (!localStream) return;
+    peersRef.current.forEach(async (peer, peerId) => {
+      const pc = peer.connection;
+      const senders = pc.getSenders();
+      const missing = localStream
+        .getTracks()
+        .filter((track) => !senders.some((s) => s.track === track));
+      if (missing.length === 0) return;
+      missing.forEach((track) => pc.addTrack(track, localStream));
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        wsRef.current?.sendSignaling('sdp_offer', peerId, offer);
+      } catch (err) {
+        console.error('[WebRTC] renegotiation after stream ready failed', err);
+      }
+    });
+  }, [localStream]);
 
   const startLocalStream = useCallback(async () => {
     try {

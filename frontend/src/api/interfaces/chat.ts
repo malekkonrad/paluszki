@@ -19,7 +19,9 @@ export type WsMessageType =
   | 'sdp_debug_offer'
   | 'sdp_debug_answer'
   | 'ice_debug_candidate'
-  | 'debug_overlay_toggle';
+  | 'debug_overlay_toggle'
+  | 'video_frame'
+  | 'translation_result';
 
 export interface IWsMessage {
   type: WsMessageType;
@@ -49,4 +51,16 @@ export interface IWsParticipantEvent {
   firstName: string;
   lastName: string;
   avatarUrl?: string;
+}
+
+export interface IWsVideoFramePayload {
+  frameB64: string;
+  ts: number;
+}
+
+export interface IWsTranslationResult {
+  userId: string;
+  text?: string | null;
+  gestureLabel?: string | null;
+  confidence: number;
 }

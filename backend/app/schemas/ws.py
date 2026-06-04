@@ -17,6 +17,7 @@ class WsMessageType(str, Enum):
     SDP_DEBUG_ANSWER = "sdp_debug_answer"
     ICE_DEBUG_CANDIDATE = "ice_debug_candidate"
     DEBUG_OVERLAY_TOGGLE = "debug_overlay_toggle"
+    VIDEO_FRAME = "video_frame"
     TRANSLATION_RESULT = "translation_result"
 
 
@@ -55,6 +56,11 @@ class DebugTogglePayload(BaseModel):
     enabled: bool = False
 
 
+class VideoFramePayload(BaseModel):
+    frameB64: str
+    ts: float = 0.0
+
+
 class TranslationResultPayload(BaseModel):
     userId: str
     text: str | None = None
@@ -72,10 +78,10 @@ def make_chat_message(sender_id: int, sender_name: str, content: str) -> WsMessa
     )
 
 
-def make_participant_joined(user_id: int, first_name: str, last_name: str, avatar_url: str | None = None) -> WsMessage:
+def make_participant_joined(user_id: int, first_name: str, last_name: str, avatar_url: str | None = None, status: str | None = None) -> WsMessage:
     return WsMessage(
         type=WsMessageType.PARTICIPANT_JOINED,
-        payload=ParticipantPayload(userId=str(user_id), firstName=first_name, lastName=last_name, avatarUrl=avatar_url).model_dump(),
+        payload=ParticipantPayload(userId=str(user_id), firstName=first_name, lastName=last_name, avatarUrl=avatar_url, status=status).model_dump(),
         senderId=str(user_id),
     )
 

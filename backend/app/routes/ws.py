@@ -55,7 +55,13 @@ async def websocket_meeting(
 
     await websocket.accept()
     connection_manager.connect(code, user_id, websocket)
-    await ws_repo.on_connect(code, user)
+    # Pass the connecting user's participant status so the host can show
+    # waiting guests in the approval panel.
+    participant_status = next(
+        (p.status.value for p in (meeting.participants or []) if p.user_id == user_id),
+        None,
+    )
+    await ws_repo.on_connect(code, user, participant_status)
 
     try:
         while True:
