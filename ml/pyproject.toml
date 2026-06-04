@@ -18,4 +18,6 @@ dependencies = [
     "kaggle>=2.0.0",
     "yt-dlp>=2026.3.17",
     "ffmpeg>=1.4",
+    "httpx>=0.27.0",
+    "openai>=2.41.0",
 ]

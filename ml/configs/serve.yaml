@@ -1,0 +1,57 @@
+classifier:
+  config_path: configs/asl_citizen100.yaml
+  checkpoint: artifacts/asl_citizen100/best_model.pt
+  # label_map: datasets/ASL_Citizen/subset100/label_map.json   # auto-resolved if omitted
+  device: cpu
+  top_k: 5
+
+llm:
+  # Switch providers without touching code.
+  #
+  # Anthropic:
+  #   type: anthropic
+  #   model: claude-haiku-4-5-20251001
+  #
+  # OpenAI / Groq / Together (via the same OpenAI-shaped API):
+  #   type: openai_compat
+  #   model: gpt-5-mini
+  #   base_url: https://api.openai.com/v1
+  #
+  # Local Ollama (no API key needed; OLLAMA_ORIGINS=* on the daemon side):
+  #   type: openai_compat
+  #   model: llama3.2
+  #   base_url: http://localhost:11434/v1
+  #
+  # Gemini:
+  #   type: gemini
+  #   model: gemini-2.5-flash
+  #
+  # Offline tests:
+  #   type: mock
+  type: openai_compat
+  model: gemma4:e2b
+  base_url: http://localhost:11434/v1
+  max_tokens: 256
+  temperature: 0.0
+  extra_body:                     # e2b is a thinking model; disable CoT so it
+    reasoning_effort: none        # answers directly (else reasoning eats tokens)
+
+pipeline:
+  target_lang: pl                 # 'pl' | 'en'
+  min_confidence: 0.5             # drop segments where top-1 prob < this
+
+  segmenter:
+    motion_threshold: 0.02        # smoothed mean-abs-diff of hand keypoints
+    pause_frames: 9               # ~0.3s @ 30fps → end of sign
+    min_segment_frames: 12        # ~0.4s minimum sign length
+    max_segment_frames: 90        # ~3s maximum (safety cap)
+    velocity_smoothing: 0.5
+
+  buffer:
+    max_segments: 8               # flush after this many signs even without pause
+    flush_pause_ms: 1500          # flush if no new sign for this long
+
+  extractor:
+    static_image_mode: false      # true = match training exactly (slower)
+    min_detection_confidence: 0.5
+    min_tracking_confidence: 0.5
