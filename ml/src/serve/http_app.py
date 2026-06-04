@@ -18,6 +18,7 @@ Config: ``PALUSZKI_SERVE_CONFIG`` (default ``configs/serve.yaml``).
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import uuid
 from typing import Dict, Optional
@@ -30,6 +31,21 @@ from pydantic import BaseModel
 from src.serve import TranslationSession, build_session_from_config
 
 _CONFIG_PATH = os.getenv("PALUSZKI_SERVE_CONFIG", "configs/serve.yaml")
+
+# Dedicated "paluszki" logger → stderr, so pipeline events (sign accepted /
+# dropped, LLM calls + timing, results) show in this service's console.
+# Verbosity via PALUSZKI_LOG_LEVEL (INFO default; DEBUG also logs every frame).
+_root_logger = logging.getLogger("paluszki")
+if not _root_logger.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(
+        logging.Formatter("%(asctime)s [%(name)s] %(levelname)s %(message)s", "%H:%M:%S")
+    )
+    _root_logger.addHandler(_handler)
+    _root_logger.propagate = False
+_root_logger.setLevel(os.getenv("PALUSZKI_LOG_LEVEL", "INFO").upper())
+
+logger = logging.getLogger("paluszki.serve.http")
 
 app = FastAPI(title="Paluszki sign-translation service")
 
@@ -82,6 +98,7 @@ async def create_session() -> CreateSessionResponse:
     session_id = uuid.uuid4().hex
     _sessions[session_id] = session
     _locks[session_id] = asyncio.Lock()
+    logger.info("session created: %s (active=%d)", session_id[:8], len(_sessions))
     return CreateSessionResponse(session_id=session_id)
 
 
@@ -89,12 +106,13 @@ async def create_session() -> CreateSessionResponse:
 async def push_frame(session_id: str, request: Request) -> TranslationResponse:
     session = _get_session(session_id)
     raw = await request.body()
+    logger.debug("[%s] frame %d bytes", session_id[:8], len(raw))
     bgr = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
     if bgr is None:
         return TranslationResponse()
     async with _locks[session_id]:
         result = await session.push_frame(bgr)
-    return _to_response(result)
+    return _log_result(session_id, _to_response(result))
 
 
 @app.post("/sessions/{session_id}/tick", response_model=TranslationResponse)
@@ -102,7 +120,13 @@ async def tick(session_id: str) -> TranslationResponse:
     session = _get_session(session_id)
     async with _locks[session_id]:
         result = await session.tick()
-    return _to_response(result)
+    return _log_result(session_id, _to_response(result))
+
+
+def _log_result(session_id: str, resp: TranslationResponse) -> TranslationResponse:
+    if resp.text:
+        logger.info("[%s] sentence -> %r", session_id[:8], resp.text)
+    return resp
 
 
 @app.delete("/sessions/{session_id}")
@@ -111,4 +135,5 @@ async def close_session(session_id: str) -> dict:
     _locks.pop(session_id, None)
     if session is not None:
         await session.aclose()
+    logger.info("session closed: %s (active=%d)", session_id[:8], len(_sessions))
     return {"status": "closed"}

@@ -12,10 +12,13 @@ its own instance.
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Optional
 
 import numpy as np
+
+logger = logging.getLogger("paluszki.serve")
 
 from src.serve.buffer import TopKBuffer
 from src.serve.classifier_runner import ClassifierRunner
@@ -84,8 +87,19 @@ class TranslationSession:
                 started_at=seg.started_at,
                 ended_at=seg.ended_at,
             )
+            top1, conf = classified.top_k[0] if classified.top_k else ("?", 0.0)
             if classified.raw_argmax_conf >= self.min_confidence:
                 self.buffer.push(classified, ts)
+                logger.info(
+                    "sign accepted: %s (%.2f) — buffer=%d [%s]",
+                    top1, conf, len(self.buffer),
+                    ", ".join(s.top_k[0][0] for s in self.buffer._entries),
+                )
+            else:
+                logger.info(
+                    "sign dropped (conf %.2f < min %.2f): %s",
+                    conf, self.min_confidence, top1,
+                )
 
         if self.buffer.should_flush(ts):
             return await self._flush()
@@ -95,7 +109,12 @@ class TranslationSession:
         signs = self.buffer.flush()
         if not signs:
             return None
+        glosses = [s.top_k[0][0] for s in signs]
+        logger.info("LLM translating %d sign(s) -> %s", len(signs), glosses)
+        t0 = time.perf_counter()
         text = await self.postprocessor.translate(signs)
+        dt_ms = (time.perf_counter() - t0) * 1000.0
+        logger.info("LLM done in %.0f ms -> %r", dt_ms, text)
         return TranslationResult(
             text=text,
             source_signs=signs,
