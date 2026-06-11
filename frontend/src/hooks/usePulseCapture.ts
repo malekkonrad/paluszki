@@ -93,6 +93,12 @@ export const usePulseCapture = ({
 
     const sample = () => {
       if (cancelled || !ctx || video.videoWidth === 0) return;
+      // Chrome can reject/interrupt play() on a detached element; a paused
+      // video repaints the same frame forever (flat signal, no pulse).
+      if (video.paused) {
+        video.play().catch(() => {});
+        return;
+      }
       ctx.drawImage(video, 0, 0, CANVAS_W, CANVAS_H);
       const rx = Math.floor(roi.x * CANVAS_W);
       const ry = Math.floor(roi.y * CANVAS_H);

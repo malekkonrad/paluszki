@@ -6,10 +6,13 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      # DATABASE_URL is relative (test.db), resolved against WORKDIR /app
-      - ./backend/test.db:/app/test.db
+      # Named volume, NOT a Windows bind mount — SQLite needs real POSIX
+      # locking, which Docker Desktop's host file shares don't provide
+      # (bind-mounting the db file causes stale reads / lost writes).
+      - paluszki-db:/app/data
     environment:
-      - DATABASE_URL=sqlite+aiosqlite:///test.db
+      # Relative path, resolved against WORKDIR /app
+      - DATABASE_URL=sqlite+aiosqlite:///data/test.db
       - PALUSZKI_TRANSLATION_ENABLED=1
       - PALUSZKI_ML_SERVICE_URL=http://ml:8001
     healthcheck:
@@ -65,6 +68,10 @@ services:
       - "11434:11434"
     volumes:
       - ollama-models:/root/.ollama
+    environment:
+      # Keep the model loaded; the default 5m idle unload would force a slow
+      # cold start (and client timeouts) on the next translation flush.
+      - OLLAMA_KEEP_ALIVE=24h
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 10s
@@ -79,7 +86,8 @@ services:
               count: all
               capabilities: [gpu]
 
-  # One-shot: pull the LLM into the ollama-models volume (no-op once cached)
+  # One-shot: pull the LLM (no-op once cached), then warm-load it into VRAM
+  # so the first translation flush doesn't hit a multi-minute cold start.
   ollama-init:
     image: ollama/ollama
     depends_on:
@@ -87,8 +95,9 @@ services:
         condition: service_healthy
     environment:
       - OLLAMA_HOST=http://ollama:11434
-    entrypoint: ["ollama", "pull", "gemma4:e2b"]
+    entrypoint: ["/bin/sh", "-c", "ollama pull gemma4:e2b && ollama run gemma4:e2b 'Odpowiedz jednym słowem: ok'"]
     restart: "no"
 
 volumes:
   ollama-models:
+  paluszki-db:

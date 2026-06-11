@@ -42,6 +42,9 @@ export const useWebRTC = ({ meetingCode, token, userId }: UseWebRTCOptions): Use
   const peersRef = useRef<Map<string, PeerConnection>>(new Map());
   const localStreamRef = useRef<MediaStream | null>(null);
   const wsRef = useRef<WebSocketService | null>(null);
+  // ICE candidates that arrived before the peer's remote description was set
+  // (handlers are async, so a candidate can outrun setRemoteDescription).
+  const pendingCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
 
   const createPeerConnection = useCallback((targetUserId: string): RTCPeerConnection => {
     const pc = new RTCPeerConnection(ICE_SERVERS);
@@ -64,7 +67,9 @@ export const useWebRTC = ({ meetingCode, token, userId }: UseWebRTCOptions): Use
     };
 
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+      // 'disconnected' is often transient (esp. in Chrome) and recovers on
+      // its own — tearing the peer down there makes users vanish mid-call.
+      if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
         removePeer(targetUserId);
       }
     };
@@ -84,7 +89,21 @@ export const useWebRTC = ({ meetingCode, token, userId }: UseWebRTCOptions): Use
     return pc;
   }, []);
 
+  const flushPendingCandidates = useCallback(async (targetUserId: string, pc: RTCPeerConnection) => {
+    const pending = pendingCandidatesRef.current.get(targetUserId);
+    if (!pending) return;
+    pendingCandidatesRef.current.delete(targetUserId);
+    for (const candidate of pending) {
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (err) {
+        console.error('[WebRTC] flushing queued ICE candidate failed', err);
+      }
+    }
+  }, []);
+
   const removePeer = useCallback((targetUserId: string) => {
+    pendingCandidatesRef.current.delete(targetUserId);
     const peer = peersRef.current.get(targetUserId);
     if (peer) {
       peer.connection.close();
@@ -103,6 +122,17 @@ export const useWebRTC = ({ meetingCode, token, userId }: UseWebRTCOptions): Use
   }, []);
 
   const handleWsMessage = useCallback(async (message: IWsMessage) => {
+    try {
+      await handleSignalingMessage(message);
+    } catch (err) {
+      // Without this, a single failed negotiation step rejects silently and
+      // the peer never connects with no trace in the console.
+      console.error(`[WebRTC] handling ${message.type} failed`, err);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, createPeerConnection, removePeer, flushPendingCandidates]);
+
+  const handleSignalingMessage = async (message: IWsMessage) => {
     const payload = message.payload as Record<string, unknown>;
 
     switch (message.type) {
@@ -132,6 +162,7 @@ export const useWebRTC = ({ meetingCode, token, userId }: UseWebRTCOptions): Use
           pc = createPeerConnection(senderId);
         }
         await pc.setRemoteDescription(new RTCSessionDescription(payload.data as RTCSessionDescriptionInit));
+        await flushPendingCandidates(senderId, pc);
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         wsRef.current?.sendSignaling('sdp_answer', senderId, answer);
@@ -144,6 +175,7 @@ export const useWebRTC = ({ meetingCode, token, userId }: UseWebRTCOptions): Use
         const pc = peersRef.current.get(senderId)?.connection;
         if (pc) {
           await pc.setRemoteDescription(new RTCSessionDescription(payload.data as RTCSessionDescriptionInit));
+          await flushPendingCandidates(senderId, pc);
         }
         break;
       }
@@ -152,9 +184,17 @@ export const useWebRTC = ({ meetingCode, token, userId }: UseWebRTCOptions): Use
         const senderId = payload.senderId as string || message.senderId as string;
         if (!senderId) return;
         const pc = peersRef.current.get(senderId)?.connection;
-        if (pc) {
-          await pc.addIceCandidate(new RTCIceCandidate(payload.data as RTCIceCandidateInit));
+        const candidate = payload.data as RTCIceCandidateInit;
+        // Candidates can outrun the offer/answer (async handlers); adding one
+        // before the remote description is set throws and the candidate is
+        // lost for good — queue it instead.
+        if (!pc || pc.remoteDescription === null) {
+          const queue = pendingCandidatesRef.current.get(senderId) ?? [];
+          queue.push(candidate);
+          pendingCandidatesRef.current.set(senderId, queue);
+          return;
         }
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
         break;
       }
 
@@ -164,7 +204,7 @@ export const useWebRTC = ({ meetingCode, token, userId }: UseWebRTCOptions): Use
         break;
       }
     }
-  }, [userId, createPeerConnection, removePeer]);
+  };
 
   useEffect(() => {
     const ws = WebSocketService.getInstance();

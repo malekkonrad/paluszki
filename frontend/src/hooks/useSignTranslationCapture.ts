@@ -44,11 +44,17 @@ export const useSignTranslationCapture = ({
 
     let cancelled = false;
     const playPromise = video.play().catch(() => {
-      /* autoplay can reject if the stream isn't ready yet; the interval retries */
+      /* autoplay can reject if the stream isn't ready yet; sendFrame retries */
     });
 
     const sendFrame = () => {
       if (cancelled || !ctx || video.videoWidth === 0) return;
+      // Chrome can reject/interrupt play() on a detached element; a paused
+      // video repaints the same frame forever, so no sign is ever detected.
+      if (video.paused) {
+        video.play().catch(() => {});
+        return;
+      }
       ctx.drawImage(video, 0, 0, width, height);
       canvas.toBlob(
         (blob) => {

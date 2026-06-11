@@ -16,6 +16,8 @@ llm:
   base_url: http://ollama:11434/v1
   max_tokens: 256
   temperature: 0.0
+  timeout: 300                    # cold model load into VRAM exceeds the 30s
+                                  # default; a shorter timeout aborts the load
   extra_body:                     # e2b is a thinking model; disable CoT so it
     reasoning_effort: none        # answers directly (else reasoning eats tokens)
 

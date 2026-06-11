@@ -8,6 +8,7 @@ __pycache__/
 .idea/
 .downloads/
 CLAUDE.md
+backend/test.db
 
 ml/datasets/How2Sign
 ml/datasets/keypoint_cache

@@ -40,13 +40,14 @@ interface VideoTileProps {
 const PULSE_CONFIDENCE_FLOOR = 0.12;
 
 const VideoTile = ({ stream, name, isMuted, isCameraOff, isLocal, caption, pulse }: VideoTileProps) => {
-  const videoRef = useRef<HTMLVideoElement>(null);
-
-  useEffect(() => {
-    if (videoRef.current && stream) {
-      videoRef.current.srcObject = stream;
+  // Callback ref instead of useEffect: the <video> unmounts while the camera
+  // is off (avatar branch) and a plain effect keyed on [stream] never re-runs
+  // for the remounted element, leaving it black after re-enabling the camera.
+  const attachStream = (el: HTMLVideoElement | null) => {
+    if (el && stream && el.srcObject !== stream) {
+      el.srcObject = stream;
     }
-  }, [stream]);
+  };
 
   return (
     <Paper
@@ -67,7 +68,7 @@ const VideoTile = ({ stream, name, isMuted, isCameraOff, isLocal, caption, pulse
     >
       {stream && !isCameraOff ? (
         <video
-          ref={videoRef}
+          ref={attachStream}
           autoPlay
           playsInline
           muted={isLocal}

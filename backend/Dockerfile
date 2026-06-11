@@ -16,8 +16,10 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY app/ app/
 COPY main.py ./
 
-# test.db will be mounted as a volume
-ENV DATABASE_URL=sqlite+aiosqlite:///test.db
+# DB lives in /app/data (a named volume in compose; SQLite must not sit on
+# a Windows bind mount — host file shares break its locking)
+RUN mkdir -p data
+ENV DATABASE_URL=sqlite+aiosqlite:///data/test.db
 
 EXPOSE 8000
 
