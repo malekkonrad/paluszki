@@ -15,7 +15,6 @@ RUN uv sync --frozen --no-dev --no-install-project
 # ── Copy source ───────────────────────────────────────────────
 COPY app/ app/
 COPY main.py ./
-COPY static/ static/
 
 # test.db will be mounted as a volume
 ENV DATABASE_URL=sqlite+aiosqlite:///test.db

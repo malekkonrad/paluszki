@@ -22,7 +22,12 @@ app = FastAPI(
 # CORS — allow frontend dev server (localhost + any device on the LAN).
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:5174", "http://localhost:3000"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://localhost:3000",
+        "https://paluszki-front.ivk.pl",
+    ],
     # Private-network origins (other computers/phones on the same Wi-Fi) on the
     # frontend dev ports, so they can reach this backend.
     allow_origin_regex=r"http://(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+):(3000|5173|5174)",

@@ -1,0 +1,40 @@
+# serve.yaml variant for docker compose: same pipeline knobs, but the LLM
+# lives in the `ollama` service (not localhost) and the label map is pinned
+# to the copy baked into the image (datasets/ are not shipped).
+# Selected via PALUSZKI_SERVE_CONFIG=configs/serve.docker.yaml (ml/Dockerfile).
+
+classifier:
+  config_path: configs/asl_citizen100.yaml
+  checkpoint: artifacts/asl_citizen100/best_model.pt
+  label_map: artifacts/asl_citizen100/label_map.json
+  device: cuda                    # runner falls back to cpu if no GPU is exposed
+  top_k: 5
+
+llm:
+  type: openai_compat
+  model: gemma4:e2b
+  base_url: http://ollama:11434/v1
+  max_tokens: 256
+  temperature: 0.0
+  extra_body:                     # e2b is a thinking model; disable CoT so it
+    reasoning_effort: none        # answers directly (else reasoning eats tokens)
+
+pipeline:
+  target_lang: pl                 # 'pl' | 'en'
+  min_confidence: 0.3             # drop segments where top-1 prob < this
+
+  segmenter:
+    motion_threshold: 0.02        # smoothed mean-abs-diff of hand keypoints
+    pause_frames: 9               # ~0.3s @ 30fps → end of sign
+    min_segment_frames: 8         # ~0.27s minimum sign length
+    max_segment_frames: 90        # ~3s maximum (safety cap)
+    velocity_smoothing: 0.5
+
+  buffer:
+    max_segments: 8               # flush after this many signs even without pause
+    flush_pause_ms: 1500          # flush if no new sign for this long
+
+  extractor:
+    static_image_mode: false      # true = match training exactly (slower)
+    min_detection_confidence: 0.5
+    min_tracking_confidence: 0.5

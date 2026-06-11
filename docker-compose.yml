@@ -6,30 +6,89 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./backend/test.db:/test.db
+      # DATABASE_URL is relative (test.db), resolved against WORKDIR /app
+      - ./backend/test.db:/app/test.db
     environment:
       - DATABASE_URL=sqlite+aiosqlite:///test.db
+      - PALUSZKI_TRANSLATION_ENABLED=1
+      - PALUSZKI_ML_SERVICE_URL=http://ml:8001
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
       interval: 10s
       timeout: 3s
       retries: 3
       start_period: 5s
+    depends_on:
+      ml:
+        condition: service_healthy
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
-        NEXT_PUBLIC_WS_BASE_URL: ws://localhost:8000/ws
+        NEXT_PUBLIC_API_BASE_URL: https://paluszki-back.ivk.pl/api
+        NEXT_PUBLIC_WS_BASE_URL: wss://paluszki-back.ivk.pl/ws
     ports:
       - "3000:3000"
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3000/"]
       interval: 10s
       timeout: 3s
       retries: 3
     depends_on:
       backend:
         condition: service_healthy
+
+  ml:
+    build:
+      context: ./ml
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8001"
+    depends_on:
+      ollama:
+        condition: service_healthy
+      ollama-init:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  ollama:
+    image: ollama/ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # One-shot: pull the LLM into the ollama-models volume (no-op once cached)
+  ollama-init:
+    image: ollama/ollama
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    entrypoint: ["ollama", "pull", "gemma4:e2b"]
+    restart: "no"
+
+volumes:
+  ollama-models:

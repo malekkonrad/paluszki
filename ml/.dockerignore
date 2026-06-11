@@ -1,0 +1,21 @@
+# Keep the build context small: only src/, configs/ and the served
+# checkpoint are COPY'd, but everything here would still be uploaded
+# as context without this file.
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.ipynb_checkpoints
+datasets
+mlruns
+artifacts/*/last_model.pt
+artifacts/keypoint_transformer
+artifacts/merged30
+artifacts/msasl25
+artifacts/msasl100
+artifacts/train_val
+artifacts/wlasl100
+.git
+.env
