@@ -320,13 +320,6 @@ pipeline:
     min_tracking_confidence: 0.5
 ```
 
-**Najczęstsze regulacje:**
-- **Za mało napisów / znaki rozpoznawane, ale odrzucane** → obniż `min_confidence` (np. 0.3).
-- **Znaki w ogóle się nie łapią (segmenter stoi w IDLE)** → obniż `motion_threshold`.
-- **Gubią się krótkie znaki** → obniż `min_segment_frames`.
-- **Szum w napisach** → podnieś `min_confidence`.
-- **LLM dzieli zdania zbyt agresywnie / za wolno** → reguluj `flush_pause_ms`.
-
 Kalibrację najwygodniej robić na `scripts/test_webcam_pipeline.py` (overlay pokazuje stan
 segmentera, bieżącą prędkość vs próg, zawartość bufora i ostatnie zdanie).
 
@@ -394,13 +387,6 @@ npm install        # pierwszy raz
 npm run dev        # http://localhost:3000
 ```
 
-Przebieg demo: zaloguj się → **Utwórz spotkanie** (kod w URL) → drugie konto w oknie incognito
-→ **Dołącz** kodem → host zatwierdza w poczekalni → włącz fioletowy przycisk **Translate** i miguj.
-
-> **Dostęp z innego urządzenia (LAN):** backend `--host 0.0.0.0`, przełącz `frontend/.env.local`
-> na adres LAN, dodaj origin do CORS. Uwaga: kamera w przeglądarce wymaga „secure context" —
-> na zwykłym `http://<IP>` trzeba flagi w Chrome (`chrome://flags` → insecure origins) albo
-> tunelu HTTPS (np. cloudflared). iOS Safari wymaga HTTPS.
 
 Diagnostyka pipeline’u bez frontu (potrzebne nagrania / webcam):
 ```bash
