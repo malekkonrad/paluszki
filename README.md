@@ -1,4 +1,2 @@
-# paluszki
-Aplikacja tłumacząca jeżyk migowy na tekst
-
-https://github.com/yt-dlp/yt-dlp
+# Paluszki
+Aplikacja tłumacząca język migowy na tekst z detektorem pulsu.
