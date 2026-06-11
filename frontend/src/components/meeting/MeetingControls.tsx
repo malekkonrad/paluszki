@@ -9,6 +9,7 @@ import {
   BugReport as BugReportIcon,
   ContentCopy as CopyIcon,
   Translate as TranslateIcon,
+  MonitorHeart as MonitorHeartIcon,
 } from '@mui/icons-material';
 
 interface MeetingControlsProps {
@@ -16,10 +17,12 @@ interface MeetingControlsProps {
   isCameraOff: boolean;
   isDebugActive: boolean;
   isTranslationActive: boolean;
+  isPulseActive: boolean;
   onToggleMute: () => void;
   onToggleCamera: () => void;
   onToggleDebug: () => void;
   onToggleTranslation: () => void;
+  onTogglePulse: () => void;
   onScreenShare: () => void;
   onEndCall: () => void;
   onCopyLink: () => void;
@@ -30,10 +33,12 @@ const MeetingControls = ({
   isCameraOff,
   isDebugActive,
   isTranslationActive,
+  isPulseActive,
   onToggleMute,
   onToggleCamera,
   onToggleDebug,
   onToggleTranslation,
+  onTogglePulse,
   onScreenShare,
   onEndCall,
   onCopyLink,
@@ -136,6 +141,32 @@ const MeetingControls = ({
           }}
         >
           <TranslateIcon />
+        </IconButton>
+      </Tooltip>
+
+      {/* Pulse detection (rPPG) */}
+      <Tooltip title={isPulseActive ? 'Wyłącz detekcję pulsu' : 'Włącz detekcję pulsu'}>
+        <IconButton
+          onClick={onTogglePulse}
+          sx={{
+            width: 52,
+            height: 52,
+            bgcolor: isPulseActive
+              ? 'rgba(255, 82, 82, 0.15)'
+              : 'rgba(255, 255, 255, 0.08)',
+            border: isPulseActive
+              ? '2px solid rgba(255, 82, 82, 0.4)'
+              : '2px solid rgba(255, 255, 255, 0.08)',
+            color: isPulseActive ? '#FF5252' : '#E8EAED',
+            '&:hover': {
+              bgcolor: isPulseActive
+                ? 'rgba(255, 82, 82, 0.25)'
+                : 'rgba(255, 255, 255, 0.12)',
+              transform: 'scale(1.1)',
+            },
+          }}
+        >
+          <MonitorHeartIcon />
         </IconButton>
       </Tooltip>
 

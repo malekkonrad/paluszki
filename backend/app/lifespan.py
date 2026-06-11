@@ -5,6 +5,7 @@ from fastapi import FastAPI
 
 from app.config import settings
 from app.database import sessionmanager
+from app.pulse import pulse_manager
 from app.translation import translation_manager
 
 logger = logging.getLogger('uvicorn.error')
@@ -22,15 +23,18 @@ async def lifespan(_app: FastAPI):
     if os.getenv("PALUSZKI_TRANSLATION_ENABLED") == "1":
         # Real ML pipeline (torch + MediaPipe + Ollama). Imported lazily so
         # the backend still starts without the ML deps when disabled.
+        from app.pulse_real import RemotePulseService
         from app.translation_real import SignTranslationService
 
         translation_manager.set_factory(SignTranslationService)
-        logger.info("[lifespan] Sign-translation factory enabled (real pipeline)")
+        pulse_manager.set_factory(RemotePulseService)
+        logger.info("[lifespan] Sign-translation + pulse factories enabled (real ML service)")
     else:
-        logger.info("[lifespan] Translation disabled — using stub (set PALUSZKI_TRANSLATION_ENABLED=1 to enable)")
+        logger.info("[lifespan] ML features disabled — using stubs (set PALUSZKI_TRANSLATION_ENABLED=1 to enable)")
 
     yield
 
     await translation_manager.shutdown_all()
+    await pulse_manager.shutdown_all()
     if sessionmanager.engine is not None:
         await sessionmanager.close()

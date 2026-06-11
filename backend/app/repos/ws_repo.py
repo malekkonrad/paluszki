@@ -16,9 +16,11 @@ from app.schemas.ws import (
     make_participant_status,
     make_signaling_forward,
     make_translation_result,
+    make_pulse_result,
 )
 from app.schemas.translation import TranslationTask
 from app.translation import translation_manager
+from app.pulse import pulse_manager
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -32,6 +34,10 @@ _TICK_INTERVAL_S = 0.4
 #   _tickers        — background pause-flush tasks.
 _session_locks: dict[tuple[str, int], asyncio.Lock] = {}
 _tickers: dict[tuple[str, int], asyncio.Task] = {}
+
+# Per-(meeting, user) lock serializing pulse-sample batches (keeps the rolling
+# rPPG window in order; the ML estimator is stateful).
+_pulse_locks: dict[tuple[str, int], asyncio.Lock] = {}
 
 
 async def on_connect(meeting_code: str, user: User, status: str | None = None) -> None:
@@ -54,9 +60,12 @@ async def on_disconnect(meeting_code: str, user_id: int) -> None:
     if ticker is not None:
         ticker.cancel()
     _session_locks.pop(key, None)
+    _pulse_locks.pop(key, None)
     await translation_manager.unregister(meeting_code, user_id)
+    await pulse_manager.unregister(meeting_code, user_id)
     if not connection_manager.get_user_ids(meeting_code):
         await translation_manager.unregister_meeting(meeting_code)
+        await pulse_manager.unregister_meeting(meeting_code)
 
     msg = make_participant_left(user_id)
     await connection_manager.broadcast(meeting_code, msg.model_dump())
@@ -93,6 +102,9 @@ async def handle_message(
 
     elif msg_type == WsMessageType.VIDEO_FRAME:
         await _handle_video_frame(meeting_code, user, payload)
+
+    elif msg_type == WsMessageType.PULSE_SAMPLES:
+        await _handle_pulse_samples(meeting_code, user, payload)
 
     elif msg_type == WsMessageType.PARTICIPANT_APPROVED:
         await _handle_participant_approval(db, meeting_code, meeting_id, payload, approved=True)
@@ -190,6 +202,26 @@ async def _ticker_loop(meeting_code: str, user_id: int) -> None:
             task = TranslationTask(meeting_code=meeting_code, user_id=str(user_id), frame_data=b"")
             result = await service.tick(task)
         await _broadcast_translation(meeting_code, user_id, result)
+
+
+# ── Pulse (rPPG) ──────────────────────────────────────────────
+
+async def _handle_pulse_samples(meeting_code: str, user: User, payload: dict) -> None:
+    """Relay a batch of ROI mean-color samples to the user's pulse session and
+    broadcast the resulting bpm (no exclude — the user sees their own pulse)."""
+    samples = payload.get("samples")
+    if not samples:
+        return
+
+    key = (meeting_code, user.id)
+    lock = _pulse_locks.setdefault(key, asyncio.Lock())
+    async with lock:
+        service = await pulse_manager.get_or_register(meeting_code, user.id)
+        result = await service.process_samples(samples)
+    if result is None or result.get("bpm") is None:
+        return
+    msg = make_pulse_result(user.id, result["bpm"], result.get("confidence", 0.0))
+    await connection_manager.broadcast(meeting_code, msg.model_dump())
 
 
 async def _handle_participant_approval(

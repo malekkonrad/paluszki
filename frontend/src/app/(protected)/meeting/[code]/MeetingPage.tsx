@@ -8,6 +8,8 @@ import { useWebRTC } from '@/hooks/useWebRTC';
 import { useDebugStream } from '@/hooks/useDebugStream';
 import { useSignTranslationCapture } from '@/hooks/useSignTranslationCapture';
 import { useTranslationOverlay } from '@/hooks/useTranslationOverlay';
+import { usePulseCapture } from '@/hooks/usePulseCapture';
+import { usePulseOverlay } from '@/hooks/usePulseOverlay';
 import VideoGrid from '@/components/meeting/VideoGrid';
 import ChatPanel from '@/components/meeting/ChatPanel';
 import MeetingControls from '@/components/meeting/MeetingControls';
@@ -46,6 +48,10 @@ const MeetingPage = ({ code }: MeetingPageProps) => {
   const [isTranslationActive, setIsTranslationActive] = useState(false);
   const { getTranslationFor } = useTranslationOverlay();
   useSignTranslationCapture({ localStream, enabled: isTranslationActive });
+
+  const [isPulseActive, setIsPulseActive] = useState(false);
+  const { getPulseFor } = usePulseOverlay();
+  usePulseCapture({ localStream, enabled: isPulseActive });
 
   const [messages, setMessages] = useState<IChatMessage[]>([]);
   const [waitingParticipants, setWaitingParticipants] = useState<IParticipant[]>([]);
@@ -226,6 +232,20 @@ const MeetingPage = ({ code }: MeetingPageProps) => {
     });
   }, []);
 
+  const handleTogglePulse = useCallback(() => {
+    setIsPulseActive((prev) => {
+      const next = !prev;
+      setSnackbar({
+        open: true,
+        message: next
+          ? 'Detekcja pulsu włączona — pierwszy odczyt po ~10 s'
+          : 'Detekcja pulsu wyłączona',
+        severity: 'info',
+      });
+      return next;
+    });
+  }, []);
+
   // If waiting for approval
   if (isWaiting) {
     return (
@@ -298,6 +318,7 @@ const MeetingPage = ({ code }: MeetingPageProps) => {
             currentUserName={currentUserName}
             localUserId={user?.id || ''}
             getTranslationFor={getTranslationFor}
+            getPulseFor={getPulseFor}
           />
 
           {/* Controls */}
@@ -313,10 +334,12 @@ const MeetingPage = ({ code }: MeetingPageProps) => {
               isCameraOff={isCameraOff}
               isDebugActive={isDebugActive}
               isTranslationActive={isTranslationActive}
+              isPulseActive={isPulseActive}
               onToggleMute={toggleMute}
               onToggleCamera={toggleCamera}
               onToggleDebug={toggleDebug}
               onToggleTranslation={handleToggleTranslation}
+              onTogglePulse={handleTogglePulse}
               onScreenShare={handleScreenShare}
               onEndCall={handleEndCall}
               onCopyLink={handleCopyLink}

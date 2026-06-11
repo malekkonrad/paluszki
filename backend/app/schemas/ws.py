@@ -19,6 +19,8 @@ class WsMessageType(str, Enum):
     DEBUG_OVERLAY_TOGGLE = "debug_overlay_toggle"
     VIDEO_FRAME = "video_frame"
     TRANSLATION_RESULT = "translation_result"
+    PULSE_SAMPLES = "pulse_samples"
+    PULSE_RESULT = "pulse_result"
 
 
 # ── Base message ──────────────────────────────────────────────
@@ -68,6 +70,17 @@ class TranslationResultPayload(BaseModel):
     confidence: float = 0.0
 
 
+class PulseSamplesPayload(BaseModel):
+    # Each sample is [ts_seconds, mean_r, mean_g, mean_b] for the face ROI.
+    samples: list[list[float]] = Field(default_factory=list)
+
+
+class PulseResultPayload(BaseModel):
+    userId: str
+    bpm: float | None = None
+    confidence: float = 0.0
+
+
 # ── Factory helpers ───────────────────────────────────────────
 
 def make_chat_message(sender_id: int, sender_name: str, content: str) -> WsMessage:
@@ -113,4 +126,11 @@ def make_translation_result(user_id: int, text: str | None, gesture_label: str |
     return WsMessage(
         type=WsMessageType.TRANSLATION_RESULT,
         payload=TranslationResultPayload(userId=str(user_id), text=text, gestureLabel=gesture_label, confidence=confidence).model_dump(),
+    )
+
+
+def make_pulse_result(user_id: int, bpm: float | None, confidence: float) -> WsMessage:
+    return WsMessage(
+        type=WsMessageType.PULSE_RESULT,
+        payload=PulseResultPayload(userId=str(user_id), bpm=bpm, confidence=confidence).model_dump(),
     )

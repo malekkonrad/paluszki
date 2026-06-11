@@ -3,7 +3,13 @@ import { Box, Typography, Paper, Avatar, Chip } from '@mui/material';
 import {
   MicOff as MicOffIcon,
   BugReport as BugReportIcon,
+  MonitorHeart as MonitorHeartIcon,
 } from '@mui/icons-material';
+
+interface PulseReading {
+  bpm: number;
+  confidence: number;
+}
 
 interface VideoGridProps {
   localStream: MediaStream | null;
@@ -16,6 +22,7 @@ interface VideoGridProps {
   currentUserName: string;
   localUserId: string;
   getTranslationFor: (userId: string) => { text: string } | null;
+  getPulseFor: (userId: string) => PulseReading | null;
 }
 
 interface VideoTileProps {
@@ -25,9 +32,14 @@ interface VideoTileProps {
   isCameraOff?: boolean;
   isLocal?: boolean;
   caption?: string | null;
+  pulse?: PulseReading | null;
 }
 
-const VideoTile = ({ stream, name, isMuted, isCameraOff, isLocal, caption }: VideoTileProps) => {
+// Below this peak-to-band power ratio the reading is likely motion/noise, so
+// we dim the badge rather than hide it (keeps the UI from flickering).
+const PULSE_CONFIDENCE_FLOOR = 0.12;
+
+const VideoTile = ({ stream, name, isMuted, isCameraOff, isLocal, caption, pulse }: VideoTileProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -137,6 +149,27 @@ const VideoTile = ({ stream, name, isMuted, isCameraOff, isLocal, caption }: Vid
         )}
       </Box>
 
+      {/* Pulse (rPPG) badge — top-right, dimmed when the signal is weak */}
+      {pulse && (
+        <Chip
+          icon={<MonitorHeartIcon sx={{ fontSize: 16, color: '#FF5252 !important' }} />}
+          label={`${Math.round(pulse.bpm)} bpm`}
+          size="small"
+          sx={{
+            position: 'absolute',
+            top: 8,
+            right: 8,
+            bgcolor: 'rgba(0, 0, 0, 0.6)',
+            backdropFilter: 'blur(8px)',
+            color: '#fff',
+            fontSize: '0.75rem',
+            fontWeight: 600,
+            height: 26,
+            opacity: pulse.confidence >= PULSE_CONFIDENCE_FLOOR ? 1 : 0.45,
+          }}
+        />
+      )}
+
       {/* Sign-language translation caption (subtitle style) */}
       {caption && (
         <Box
@@ -185,6 +218,7 @@ const VideoGrid = ({
   currentUserName,
   localUserId,
   getTranslationFor,
+  getPulseFor,
 }: VideoGridProps) => {
   const debugVideoRef = useRef<HTMLVideoElement>(null);
   const totalParticipants = 1 + remoteStreams.size;
@@ -221,6 +255,7 @@ const VideoGrid = ({
           isCameraOff={isCameraOff}
           isLocal
           caption={getTranslationFor(localUserId)?.text ?? null}
+          pulse={getPulseFor(localUserId)}
         />
 
         {/* Remote videos */}
@@ -230,6 +265,7 @@ const VideoGrid = ({
             stream={stream}
             name={peerNames.get(peerId) || 'Uczestnik'}
             caption={getTranslationFor(peerId)?.text ?? null}
+            pulse={getPulseFor(peerId)}
           />
         ))}
       </Box>

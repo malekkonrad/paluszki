@@ -21,7 +21,9 @@ export type WsMessageType =
   | 'ice_debug_candidate'
   | 'debug_overlay_toggle'
   | 'video_frame'
-  | 'translation_result';
+  | 'translation_result'
+  | 'pulse_samples'
+  | 'pulse_result';
 
 export interface IWsMessage {
   type: WsMessageType;
@@ -62,5 +64,18 @@ export interface IWsTranslationResult {
   userId: string;
   text?: string | null;
   gestureLabel?: string | null;
+  confidence: number;
+}
+
+/** One ROI mean-color sample: [tsSeconds, meanR, meanG, meanB]. */
+export type PulseSample = [number, number, number, number];
+
+export interface IWsPulseSamplesPayload {
+  samples: PulseSample[];
+}
+
+export interface IWsPulseResult {
+  userId: string;
+  bpm?: number | null;
   confidence: number;
 }

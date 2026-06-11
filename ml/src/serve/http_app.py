@@ -28,6 +28,7 @@ import numpy as np
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
+from src.pulse import PulseEstimator
 from src.serve import TranslationSession, build_session_from_config
 
 _CONFIG_PATH = os.getenv("PALUSZKI_SERVE_CONFIG", "configs/serve.yaml")
@@ -53,6 +54,12 @@ app = FastAPI(title="Paluszki sign-translation service")
 # concurrent frame/tick calls).
 _sessions: Dict[str, TranslationSession] = {}
 _locks: Dict[str, asyncio.Lock] = {}
+
+# Pulse (rPPG) sessions are independent and cheap (pure-numpy DSP, no model),
+# so they get their own registry. The browser streams ROI mean-color samples;
+# we just do the frequency-domain estimation.
+_pulse: Dict[str, PulseEstimator] = {}
+_pulse_locks: Dict[str, asyncio.Lock] = {}
 
 
 class CreateSessionResponse(BaseModel):
@@ -136,4 +143,48 @@ async def close_session(session_id: str) -> dict:
     if session is not None:
         await session.aclose()
     logger.info("session closed: %s (active=%d)", session_id[:8], len(_sessions))
+    return {"status": "closed"}
+
+
+# ── Pulse (rPPG) ──────────────────────────────────────────────────────────
+
+
+class PulseSamplesRequest(BaseModel):
+    # Each sample is [ts_seconds, mean_r, mean_g, mean_b] for the face ROI.
+    samples: list[list[float]]
+
+
+class PulseResponse(BaseModel):
+    bpm: Optional[float] = None
+    confidence: float = 0.0
+    fs: float = 0.0
+
+
+@app.post("/pulse/sessions", response_model=CreateSessionResponse)
+async def create_pulse_session() -> CreateSessionResponse:
+    session_id = uuid.uuid4().hex
+    _pulse[session_id] = PulseEstimator()
+    _pulse_locks[session_id] = asyncio.Lock()
+    logger.info("pulse session created: %s (active=%d)", session_id[:8], len(_pulse))
+    return CreateSessionResponse(session_id=session_id)
+
+
+@app.post("/pulse/sessions/{session_id}/samples", response_model=PulseResponse)
+async def push_pulse_samples(session_id: str, req: PulseSamplesRequest) -> PulseResponse:
+    estimator = _pulse.get(session_id)
+    if estimator is None:
+        raise HTTPException(status_code=404, detail="pulse session not found")
+    async with _pulse_locks[session_id]:
+        estimator.add_samples(req.samples)
+        result = estimator.estimate()
+    if result is None:
+        return PulseResponse()
+    return PulseResponse(bpm=result.bpm, confidence=result.confidence, fs=result.fs)
+
+
+@app.delete("/pulse/sessions/{session_id}")
+async def close_pulse_session(session_id: str) -> dict:
+    _pulse.pop(session_id, None)
+    _pulse_locks.pop(session_id, None)
+    logger.info("pulse session closed: %s (active=%d)", session_id[:8], len(_pulse))
     return {"status": "closed"}

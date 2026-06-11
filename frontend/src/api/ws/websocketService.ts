@@ -113,6 +113,13 @@ class WebSocketService {
     });
   }
 
+  sendPulseSamples(samples: [number, number, number, number][]): void {
+    this.sendMessage({
+      type: 'pulse_samples',
+      payload: { samples },
+    });
+  }
+
   on(type: WsMessageType | 'all', callback: MessageCallback): () => void {
     const key = type;
     if (!this.listeners.has(key)) {
