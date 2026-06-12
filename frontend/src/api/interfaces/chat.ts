@@ -16,14 +16,17 @@ export type WsMessageType =
   | 'participant_left'
   | 'participant_approved'
   | 'participant_rejected'
-  | 'sdp_debug_offer'
-  | 'sdp_debug_answer'
-  | 'ice_debug_candidate'
-  | 'debug_overlay_toggle'
   | 'video_frame'
   | 'translation_result'
   | 'pulse_samples'
-  | 'pulse_result';
+  | 'pulse_result'
+  /** Synthetic, client-side only: this account opened the meeting elsewhere
+   *  and the server kicked this socket (close code 4008). */
+  | 'session_takeover'
+  /** Synthetic, client-side only: connection-state notifications. */
+  | 'ws_reconnecting'
+  | 'ws_reconnected'
+  | 'ws_failed';
 
 export interface IWsMessage {
   type: WsMessageType;
@@ -35,11 +38,6 @@ export interface IWsMessage {
 export interface IWsSignalingMessage {
   type: 'sdp_offer' | 'sdp_answer' | 'ice_candidate';
   targetUserId: string;
-  payload: RTCSessionDescriptionInit | RTCIceCandidateInit;
-}
-
-export interface IWsDebugSignalingMessage {
-  type: 'sdp_debug_offer' | 'sdp_debug_answer' | 'ice_debug_candidate';
   payload: RTCSessionDescriptionInit | RTCIceCandidateInit;
 }
 
@@ -65,6 +63,8 @@ export interface IWsTranslationResult {
   text?: string | null;
   gestureLabel?: string | null;
   confidence: number;
+  /** Whether the sign passed the pipeline's confidence threshold. */
+  gestureAccepted?: boolean | null;
 }
 
 /** One ROI mean-color sample: [tsSeconds, meanR, meanG, meanB]. */

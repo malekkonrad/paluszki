@@ -15,17 +15,34 @@ class ConnectionManager:
         # { meeting_code: { user_id: WebSocket } }
         self._connections: dict[str, dict[int, WebSocket]] = {}
 
-    def connect(self, meeting_code: str, user_id: int, websocket: WebSocket) -> None:
-        """Register a user's WebSocket connection for a meeting."""
+    async def connect(self, meeting_code: str, user_id: int, websocket: WebSocket) -> None:
+        """Register a user's WebSocket connection for a meeting.
+
+        One live socket per (meeting, user): a second login from the same
+        account takes over and the old socket is closed — otherwise the stale
+        entry shadows the new one and both sessions misbehave."""
         if meeting_code not in self._connections:
             self._connections[meeting_code] = {}
+        old = self._connections[meeting_code].get(user_id)
         self._connections[meeting_code][user_id] = websocket
+        if old is not None:
+            try:
+                await old.close(code=4008, reason="Connected from another session")
+            except Exception:
+                pass
+            logger.info(f"[ConnectionManager] User {user_id} reconnected to meeting {meeting_code}, old socket kicked")
         logger.info(f"[ConnectionManager] User {user_id} connected to meeting {meeting_code}")
 
-    def disconnect(self, meeting_code: str, user_id: int) -> None:
-        """Remove a user's connection. Cleans up empty meetings."""
+    def disconnect(self, meeting_code: str, user_id: int, websocket: WebSocket | None = None) -> None:
+        """Remove a user's connection. Cleans up empty meetings.
+
+        When ``websocket`` is given, only remove if it's still the registered
+        socket — the teardown of a kicked old connection must not unregister
+        the replacement that already took its slot."""
         conns = self._connections.get(meeting_code)
         if conns is None:
+            return
+        if websocket is not None and conns.get(user_id) is not websocket:
             return
         conns.pop(user_id, None)
         if not conns:

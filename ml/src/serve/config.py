@@ -47,12 +47,16 @@ from src.utils.config import load_config
 def build_session_from_config(
     path: str,
     llm_override: Optional[Dict[str, Any]] = None,
+    speaker_name: Optional[str] = None,
 ) -> TranslationSession:
     """Load ``serve.yaml`` and instantiate a :class:`TranslationSession`.
 
     ``llm_override`` (if provided) replaces the ``llm:`` section — handy
     for tests (``llm_override={"type": "mock"}``) and for swapping
     providers without touching the config file.
+
+    ``speaker_name`` (if provided) is baked into the LLM prompt so the
+    sentence can use the right grammatical gender for the signer.
     """
     cfg = load_config(path)
 
@@ -78,7 +82,7 @@ def build_session_from_config(
     buf_cfg = pipe_cfg.get("buffer", {})
     buffer = TopKBuffer(
         max_segments=int(buf_cfg.get("max_segments", 8)),
-        flush_pause_ms=int(buf_cfg.get("flush_pause_ms", 1500)),
+        flush_pause_ms=int(buf_cfg.get("flush_pause_ms", 15000)),
     )
 
     ext_cfg = pipe_cfg.get("extractor")
@@ -96,7 +100,7 @@ def build_session_from_config(
     if llm_override:
         llm_cfg = {**llm_cfg, **llm_override}
     llm = build_llm_client(llm_cfg)
-    postprocessor = Postprocessor(llm, target_lang=target_lang)
+    postprocessor = Postprocessor(llm, target_lang=target_lang, speaker_name=speaker_name)
 
     return TranslationSession(
         classifier=classifier,

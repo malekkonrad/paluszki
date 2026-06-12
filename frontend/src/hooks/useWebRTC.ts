@@ -12,39 +12,90 @@ interface UseWebRTCOptions {
   meetingCode: string;
   token: string;
   userId: string;
+  /** Gate the WS connection until we're registered as a participant —
+   *  the backend rejects sockets from non-participants (4003). */
+  ready?: boolean;
 }
 
 interface UseWebRTCReturn {
   localStream: MediaStream | null;
+  screenStream: MediaStream | null;
+  isScreenSharing: boolean;
   remoteStreams: Map<string, MediaStream>;
   peerNames: Map<string, string>;
+  /** Live RTCPeerConnection state per peer, for "reconnecting" badges. */
+  peerStates: Map<string, RTCPeerConnectionState>;
   isMuted: boolean;
   isCameraOff: boolean;
   toggleMute: () => void;
   toggleCamera: () => void;
+  startScreenShare: () => Promise<void>;
+  stopScreenShare: () => void;
   startLocalStream: () => Promise<void>;
   stopLocalStream: () => void;
 }
+
+// Optional self-hosted TURN relay (coturn in docker-compose) — used when the
+// direct P2P path can't traverse the NATs. Baked in at build time.
+const TURN_HOST = process.env.NEXT_PUBLIC_TURN_HOST || '';
+const TURN_USERNAME = process.env.NEXT_PUBLIC_TURN_USERNAME || 'paluszki';
+const TURN_PASSWORD = process.env.NEXT_PUBLIC_TURN_PASSWORD || '';
 
 const ICE_SERVERS: RTCConfiguration = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
+    ...(TURN_HOST && TURN_PASSWORD
+      ? [
+          {
+            urls: [
+              `turn:${TURN_HOST}:3478?transport=udp`,
+              `turn:${TURN_HOST}:3478?transport=tcp`,
+            ],
+            username: TURN_USERNAME,
+            credential: TURN_PASSWORD,
+          },
+        ]
+      : []),
   ],
 };
 
-export const useWebRTC = ({ meetingCode, token, userId }: UseWebRTCOptions): UseWebRTCReturn => {
+export const useWebRTC = ({ meetingCode, token, userId, ready = true }: UseWebRTCOptions): UseWebRTCReturn => {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
   const [remoteStreams, setRemoteStreams] = useState<Map<string, MediaStream>>(new Map());
   const [peerNames, setPeerNames] = useState<Map<string, string>>(new Map());
+  const [peerStates, setPeerStates] = useState<Map<string, RTCPeerConnectionState>>(new Map());
   const [isMuted, setIsMuted] = useState(false);
   const [isCameraOff, setIsCameraOff] = useState(false);
   const peersRef = useRef<Map<string, PeerConnection>>(new Map());
   const localStreamRef = useRef<MediaStream | null>(null);
+  const screenStreamRef = useRef<MediaStream | null>(null);
   const wsRef = useRef<WebSocketService | null>(null);
   // ICE candidates that arrived before the peer's remote description was set
   // (handlers are async, so a candidate can outrun setRemoteDescription).
   const pendingCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
+  // Perfect-negotiation state: true while we're producing an offer for a peer.
+  // Offers can cross (glare) — e.g. our post-approval offer vs. the guest's
+  // renegotiation after their camera starts — and without rollback handling
+  // one side drops the other's offer, leaving one-directional video.
+  const makingOfferRef = useRef<Map<string, boolean>>(new Map());
+
+  // Deterministic role per peer pair: the "polite" side rolls back its own
+  // offer on collision and answers; the "impolite" side ignores the incoming
+  // offer (its own will be answered by the polite peer).
+  const isPoliteWith = (peerId: string): boolean => Number(userId) < Number(peerId);
+
+  const sendOffer = async (peerId: string, pc: RTCPeerConnection) => {
+    makingOfferRef.current.set(peerId, true);
+    try {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      wsRef.current?.sendSignaling('sdp_offer', peerId, offer);
+    } finally {
+      makingOfferRef.current.set(peerId, false);
+    }
+  };
 
   const createPeerConnection = useCallback((targetUserId: string): RTCPeerConnection => {
     const pc = new RTCPeerConnection(ICE_SERVERS);
@@ -67,16 +118,45 @@ export const useWebRTC = ({ meetingCode, token, userId }: UseWebRTCOptions): Use
     };
 
     pc.onconnectionstatechange = () => {
-      // 'disconnected' is often transient (esp. in Chrome) and recovers on
-      // its own — tearing the peer down there makes users vanish mid-call.
-      if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+      const state = pc.connectionState;
+      setPeerStates((prev) => new Map(prev).set(targetUserId, state));
+
+      if (state === 'failed') {
+        // Auto-reconnect: restart ICE over the same connection (new
+        // candidates, fresh paths). Crossing restart offers from both sides
+        // are resolved by perfect negotiation. Only if the restart doesn't
+        // recover do we tear the peer down.
+        console.warn(`[WebRTC] connection to ${targetUserId} failed — restarting ICE`);
+        try {
+          pc.restartIce();
+          void sendOffer(targetUserId, pc).catch((err) =>
+            console.error('[WebRTC] ICE-restart offer failed', err),
+          );
+        } catch {
+          removePeer(targetUserId);
+          return;
+        }
+        window.setTimeout(() => {
+          if (peersRef.current.get(targetUserId)?.connection === pc && pc.connectionState === 'failed') {
+            console.error(`[WebRTC] ICE restart for ${targetUserId} did not recover — dropping peer`);
+            removePeer(targetUserId);
+          }
+        }, 10000);
+      } else if (state === 'closed') {
         removePeer(targetUserId);
       }
     };
 
     if (localStreamRef.current) {
+      // While screen sharing, peers created mid-share must receive the screen
+      // track in the video slot (the camera track is restored on share end).
+      const activeScreenTrack = screenStreamRef.current?.getVideoTracks()[0] ?? null;
       localStreamRef.current.getTracks().forEach((track) => {
-        pc.addTrack(track, localStreamRef.current!);
+        if (track.kind === 'video' && activeScreenTrack) {
+          pc.addTrack(activeScreenTrack, localStreamRef.current!);
+        } else {
+          pc.addTrack(track, localStreamRef.current!);
+        }
       });
     }
 
@@ -104,6 +184,7 @@ export const useWebRTC = ({ meetingCode, token, userId }: UseWebRTCOptions): Use
 
   const removePeer = useCallback((targetUserId: string) => {
     pendingCandidatesRef.current.delete(targetUserId);
+    makingOfferRef.current.delete(targetUserId);
     const peer = peersRef.current.get(targetUserId);
     if (peer) {
       peer.connection.close();
@@ -114,6 +195,11 @@ export const useWebRTC = ({ meetingCode, token, userId }: UseWebRTCOptions): Use
         return next;
       });
       setPeerNames((prev) => {
+        const next = new Map(prev);
+        next.delete(targetUserId);
+        return next;
+      });
+      setPeerStates((prev) => {
         const next = new Map(prev);
         next.delete(targetUserId);
         return next;
@@ -140,16 +226,30 @@ export const useWebRTC = ({ meetingCode, token, userId }: UseWebRTCOptions): Use
         const joinedUserId = payload.userId as string;
         if (joinedUserId === userId) return;
 
-        setPeerNames((prev) => {
-          const next = new Map(prev);
-          next.set(joinedUserId, `${payload.firstName} ${payload.lastName}`);
-          return next;
-        });
+        // Waiting guests are connected only to hear the approval — the server
+        // re-broadcasts participant_joined(approved) once the host lets them
+        // in, and that's when we open WebRTC towards them.
+        const isWaitingGuest = payload.status === 'waiting';
+
+        // A re-join (page refresh, second device takeover) means any previous
+        // connection to this user is dead — start clean. (Also clears the
+        // name, so record it after.)
+        if (!isWaitingGuest) {
+          removePeer(joinedUserId);
+        }
+
+        if (payload.firstName) {
+          setPeerNames((prev) => {
+            const next = new Map(prev);
+            next.set(joinedUserId, `${payload.firstName} ${payload.lastName}`);
+            return next;
+          });
+        }
+
+        if (isWaitingGuest) return;
 
         const pc = createPeerConnection(joinedUserId);
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        wsRef.current?.sendSignaling('sdp_offer', joinedUserId, offer);
+        await sendOffer(joinedUserId, pc);
         break;
       }
 
@@ -161,6 +261,20 @@ export const useWebRTC = ({ meetingCode, token, userId }: UseWebRTCOptions): Use
         if (!pc) {
           pc = createPeerConnection(senderId);
         }
+
+        // Perfect negotiation: offers can cross. The impolite side ignores
+        // the incoming one (its own offer will be answered); the polite side
+        // rolls its own back and answers.
+        const offerCollision =
+          makingOfferRef.current.get(senderId) === true || pc.signalingState !== 'stable';
+        if (offerCollision) {
+          if (!isPoliteWith(senderId)) {
+            console.warn(`[WebRTC] offer collision with ${senderId} — ignoring (impolite)`);
+            return;
+          }
+          await pc.setLocalDescription({ type: 'rollback' });
+        }
+
         await pc.setRemoteDescription(new RTCSessionDescription(payload.data as RTCSessionDescriptionInit));
         await flushPendingCandidates(senderId, pc);
         const answer = await pc.createAnswer();
@@ -173,7 +287,10 @@ export const useWebRTC = ({ meetingCode, token, userId }: UseWebRTCOptions): Use
         const senderId = payload.senderId as string || message.senderId as string;
         if (!senderId) return;
         const pc = peersRef.current.get(senderId)?.connection;
-        if (pc) {
+        // An answer is only valid against our outstanding offer; anything
+        // else is a stale leftover from a collision — applying it would throw
+        // and (worse) wedge the connection.
+        if (pc && pc.signalingState === 'have-local-offer') {
           await pc.setRemoteDescription(new RTCSessionDescription(payload.data as RTCSessionDescriptionInit));
           await flushPendingCandidates(senderId, pc);
         }
@@ -194,7 +311,13 @@ export const useWebRTC = ({ meetingCode, token, userId }: UseWebRTCOptions): Use
           pendingCandidatesRef.current.set(senderId, queue);
           return;
         }
-        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        } catch (err) {
+          // Candidates from an offer we deliberately ignored (collision)
+          // don't match the active negotiation — safe to drop.
+          console.warn('[WebRTC] dropped ICE candidate', err);
+        }
         break;
       }
 
@@ -206,27 +329,28 @@ export const useWebRTC = ({ meetingCode, token, userId }: UseWebRTCOptions): Use
     }
   };
 
+  // Connect as soon as we're in the meeting — independent of the camera.
+  // The WS carries presence/approval/chat, which must work even if the
+  // local camera is unavailable (e.g. a second browser on the same machine
+  // can't grab the one webcam). Media tracks are attached separately, with
+  // renegotiation once the local stream arrives (see effect below).
+  //
+  // Deliberately NOT keyed on the message handler: its identity changes when
+  // the auth user resolves, and reconnecting then makes the server broadcast
+  // participant_left/joined — everyone else briefly drops this user's tile.
   useEffect(() => {
     const ws = WebSocketService.getInstance();
     wsRef.current = ws;
-
-    // Connect as soon as we're in the meeting — independent of the camera.
-    // The WS carries presence/approval/chat, which must work even if the
-    // local camera is unavailable (e.g. a second browser on the same machine
-    // can't grab the one webcam). Media tracks are attached separately, with
-    // renegotiation once the local stream arrives (see effect below).
-    if (meetingCode && token) {
+    if (meetingCode && token && ready) {
       ws.connect(meetingCode, token);
-      const unsubscribe = ws.on('all', handleWsMessage);
-
-      return () => {
-        unsubscribe();
-        peersRef.current.forEach((peer) => peer.connection.close());
-        peersRef.current.clear();
-        setRemoteStreams(new Map());
-      };
     }
-  }, [meetingCode, token, handleWsMessage]);
+  }, [meetingCode, token, ready]);
+
+  useEffect(() => {
+    const ws = WebSocketService.getInstance();
+    const unsubscribe = ws.on('all', handleWsMessage);
+    return unsubscribe;
+  }, [handleWsMessage]);
 
   // If the local stream becomes available after a peer connection was already
   // created (e.g. a guest whose camera resolved after the host's offer
@@ -239,17 +363,21 @@ export const useWebRTC = ({ meetingCode, token, userId }: UseWebRTCOptions): Use
       const senders = pc.getSenders();
       const missing = localStream
         .getTracks()
-        .filter((track) => !senders.some((s) => s.track === track));
+        .filter((track) => !senders.some((s) => s.track === track))
+        // While sharing, the video slot intentionally carries the screen
+        // track — don't add the camera as a second video track.
+        .filter((track) => !(track.kind === 'video' && screenStreamRef.current));
       if (missing.length === 0) return;
       missing.forEach((track) => pc.addTrack(track, localStream));
       try {
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        wsRef.current?.sendSignaling('sdp_offer', peerId, offer);
+        await sendOffer(peerId, pc);
       } catch (err) {
-        console.error('[WebRTC] renegotiation after stream ready failed', err);
+        // A collision here is fine: the tracks are already attached, so they
+        // ride along in the answer we produce for the peer's crossing offer.
+        console.warn('[WebRTC] renegotiation offer superseded', err);
       }
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [localStream]);
 
   const startLocalStream = useCallback(async () => {
@@ -274,6 +402,45 @@ export const useWebRTC = ({ meetingCode, token, userId }: UseWebRTCOptions): Use
     }
   }, []);
 
+  const stopScreenShare = useCallback(() => {
+    const stream = screenStreamRef.current;
+    if (!stream) return;
+    stream.getTracks().forEach((track) => track.stop());
+    screenStreamRef.current = null;
+    setScreenStream(null);
+    // Put the camera back into every peer's video slot.
+    const cameraTrack = localStreamRef.current?.getVideoTracks()[0] ?? null;
+    peersRef.current.forEach((peer) => {
+      const sender = peer.connection.getSenders().find((s) => s.track?.kind === 'video');
+      if (sender) {
+        sender.replaceTrack(cameraTrack).catch((err) => {
+          console.error('[WebRTC] restoring camera after screen share failed', err);
+        });
+      }
+    });
+  }, []);
+
+  const startScreenShare = useCallback(async () => {
+    if (screenStreamRef.current) return;
+    const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+    const screenTrack = stream.getVideoTracks()[0];
+    if (!screenTrack) return;
+    // Swap the outgoing video track in-place — same m-line, so no
+    // renegotiation; remotes see the screen in this user's existing tile.
+    peersRef.current.forEach((peer) => {
+      const sender = peer.connection.getSenders().find((s) => s.track?.kind === 'video');
+      if (sender) {
+        sender.replaceTrack(screenTrack).catch((err) => {
+          console.error('[WebRTC] switching to screen track failed', err);
+        });
+      }
+    });
+    // Browser's own "Stop sharing" bar ends the track — clean up then too.
+    screenTrack.onended = () => stopScreenShare();
+    screenStreamRef.current = stream;
+    setScreenStream(stream);
+  }, [stopScreenShare]);
+
   const toggleMute = useCallback(() => {
     if (localStreamRef.current) {
       const audioTrack = localStreamRef.current.getAudioTracks()[0];
@@ -296,7 +463,13 @@ export const useWebRTC = ({ meetingCode, token, userId }: UseWebRTCOptions): Use
 
   useEffect(() => {
     return () => {
+      screenStreamRef.current?.getTracks().forEach((track) => track.stop());
+      screenStreamRef.current = null;
       stopLocalStream();
+      peersRef.current.forEach((peer) => peer.connection.close());
+      peersRef.current.clear();
+      pendingCandidatesRef.current.clear();
+      setRemoteStreams(new Map());
       const ws = WebSocketService.getInstance();
       ws.disconnect();
     };
@@ -304,12 +477,17 @@ export const useWebRTC = ({ meetingCode, token, userId }: UseWebRTCOptions): Use
 
   return {
     localStream,
+    screenStream,
+    isScreenSharing: screenStream !== null,
     remoteStreams,
     peerNames,
+    peerStates,
     isMuted,
     isCameraOff,
     toggleMute,
     toggleCamera,
+    startScreenShare,
+    stopScreenShare,
     startLocalStream,
     stopLocalStream,
   };

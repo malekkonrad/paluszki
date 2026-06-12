@@ -36,6 +36,9 @@ class WebSocketService {
 
     this.ws.onopen = () => {
       console.log('[WS] Connected to meeting:', meetingCode);
+      if (this.reconnectAttempts > 0) {
+        this.notifyListeners({ type: 'ws_reconnected', payload: {} });
+      }
       this.reconnectAttempts = 0;
     };
 
@@ -50,8 +53,19 @@ class WebSocketService {
 
     this.ws.onclose = (event) => {
       console.log('[WS] Connection closed:', event.code, event.reason);
-      if (!event.wasClean && this.reconnectAttempts < this.maxReconnectAttempts) {
-        this.attemptReconnect();
+      // 4008 = the same account connected from another tab/device and took
+      // over this meeting session. Tell the UI instead of dying silently,
+      // and don't reconnect (that would kick the new session in return).
+      if (event.code === 4008) {
+        this.notifyListeners({ type: 'session_takeover', payload: {} });
+        return;
+      }
+      if (!event.wasClean) {
+        if (this.reconnectAttempts < this.maxReconnectAttempts) {
+          this.attemptReconnect();
+        } else {
+          this.notifyListeners({ type: 'ws_failed', payload: {} });
+        }
       }
     };
 
@@ -89,20 +103,6 @@ class WebSocketService {
     this.sendMessage({
       type,
       payload: { targetUserId, data: payload },
-    });
-  }
-
-  sendDebugSignaling(type: 'sdp_debug_offer' | 'sdp_debug_answer' | 'ice_debug_candidate', payload: RTCSessionDescriptionInit | RTCIceCandidateInit): void {
-    this.sendMessage({
-      type,
-      payload: { data: payload },
-    });
-  }
-
-  toggleDebugOverlay(enabled: boolean): void {
-    this.sendMessage({
-      type: 'debug_overlay_toggle',
-      payload: { enabled },
     });
   }
 
@@ -146,6 +146,10 @@ class WebSocketService {
     this.reconnectAttempts++;
     const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
     console.log(`[WS] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+    this.notifyListeners({
+      type: 'ws_reconnecting',
+      payload: { attempt: this.reconnectAttempts, max: this.maxReconnectAttempts },
+    });
 
     setTimeout(() => {
       if (this.meetingCode && this.token) {

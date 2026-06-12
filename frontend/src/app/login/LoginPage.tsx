@@ -10,25 +10,22 @@ import {
   Typography,
   TextField,
   Button,
-  Divider,
   Alert,
   InputAdornment,
   IconButton,
   CircularProgress,
 } from '@mui/material';
 import {
-  Google as GoogleIcon,
   Visibility,
   VisibilityOff,
   Email as EmailIcon,
   Lock as LockIcon,
   VideoCameraFront as VideoIcon,
-  PersonOutline as DemoIcon,
 } from '@mui/icons-material';
 import { useAuth } from '@/hooks/useAuth';
 
 const LoginPage = () => {
-  const { login, googleLogin, demoLogin } = useAuth();
+  const { login } = useAuth();
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -49,18 +46,6 @@ const LoginPage = () => {
       setError(error.response?.data?.message || 'Błąd logowania. Sprawdź dane i spróbuj ponownie.');
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const handleGoogleLogin = async () => {
-    setError('');
-    try {
-      // W pełnej implementacji tutaj będzie Google OAuth flow
-      // Na razie symulujemy credential token
-      await googleLogin({ credential: 'google-oauth-token' });
-      router.push('/');
-    } catch {
-      setError('Błąd logowania przez Google.');
     }
   };
 
@@ -215,51 +200,6 @@ const LoginPage = () => {
               {isLoading ? <CircularProgress size={24} color="inherit" /> : 'Zaloguj się'}
             </Button>
           </form>
-
-          <Divider sx={{ my: 2.5 }}>
-            <Typography variant="body2" color="text.secondary">
-              lub
-            </Typography>
-          </Divider>
-
-          <Button
-            fullWidth
-            variant="outlined"
-            size="large"
-            onClick={handleGoogleLogin}
-            startIcon={<GoogleIcon />}
-            sx={{
-              py: 1.5,
-              borderColor: 'rgba(255, 255, 255, 0.12)',
-              color: 'text.primary',
-              '&:hover': {
-                borderColor: 'rgba(255, 255, 255, 0.3)',
-                bgcolor: 'rgba(255, 255, 255, 0.04)',
-              },
-            }}
-          >
-            Zaloguj przez Google
-          </Button>
-
-          <Button
-            fullWidth
-            variant="outlined"
-            size="large"
-            onClick={() => { demoLogin(); router.push('/'); }}
-            startIcon={<DemoIcon />}
-            sx={{
-              py: 1.5,
-              mt: 1.5,
-              borderColor: 'rgba(105, 240, 174, 0.3)',
-              color: '#69F0AE',
-              '&:hover': {
-                borderColor: 'rgba(105, 240, 174, 0.5)',
-                bgcolor: 'rgba(105, 240, 174, 0.06)',
-              },
-            }}
-          >
-            Wejdź jako Demo
-          </Button>
 
           <Box sx={{ mt: 3, textAlign: 'center' }}>
             <Typography variant="body2" color="text.secondary">

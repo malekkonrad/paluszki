@@ -81,23 +81,30 @@ class TranslationManager:
         """Set the TranslationService class to instantiate for new sessions."""
         self._factory = factory
 
-    async def register(self, meeting_code: str, user_id: int) -> TranslationService:
+    async def register(
+        self, meeting_code: str, user_id: int, speaker_name: str | None = None
+    ) -> TranslationService:
         """Create and initialize a TranslationService for a (meeting, user)."""
         key = (meeting_code, user_id)
         if key in self._services:
             return self._services[key]
         service = self._factory()
+        # Forwarded to the ML session's LLM prompt (gender agreement);
+        # the stub implementation simply ignores it.
+        service.speaker_name = speaker_name
         await service.initialize()
         self._services[key] = service
         logger.info(f"[TranslationManager] Registered service for {key}")
         return service
 
-    async def get_or_register(self, meeting_code: str, user_id: int) -> TranslationService:
+    async def get_or_register(
+        self, meeting_code: str, user_id: int, speaker_name: str | None = None
+    ) -> TranslationService:
         """Return the existing service or create one if absent."""
         existing = self.get(meeting_code, user_id)
         if existing is not None:
             return existing
-        return await self.register(meeting_code, user_id)
+        return await self.register(meeting_code, user_id, speaker_name)
 
     def get(self, meeting_code: str, user_id: int) -> TranslationService | None:
         """Get the service for a (meeting, user), or None if not registered."""

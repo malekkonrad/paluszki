@@ -1,12 +1,11 @@
-"""Top-K buffer accumulating classified segments until a flush trigger fires.
+"""Top-K buffer holding the signs of the sentence being built.
 
-Flush triggers:
-- buffer reaches ``max_segments`` entries, or
-- ``flush_pause_ms`` milliseconds elapse with no new push.
-
-The pause-based trigger needs the caller to periodically call
-``should_flush(now)``; the session does this on every incoming frame and
-on explicit ``tick()`` calls.
+The session translates the buffer's *snapshot* after every accepted sign
+(incremental sentence updates), so the buffer is not cleared per flush —
+it represents "the current sentence so far". It is cleared when:
+- ``max_segments`` is reached (sentence committed, next sign starts fresh), or
+- ``flush_pause_ms`` milliseconds pass with no new sign (signer went idle;
+  the session's ``tick()`` polls ``should_reset(now)`` for this).
 """
 
 from __future__ import annotations
@@ -17,7 +16,7 @@ from src.serve.schemas import ClassifierOutput
 
 
 class TopKBuffer:
-    def __init__(self, max_segments: int = 8, flush_pause_ms: int = 1500):
+    def __init__(self, max_segments: int = 8, flush_pause_ms: int = 15000):
         self.max_segments = max_segments
         self.flush_pause_ms = flush_pause_ms
         self._entries: List[ClassifierOutput] = []
@@ -33,11 +32,18 @@ class TopKBuffer:
     def is_empty(self) -> bool:
         return not self._entries
 
-    def should_flush(self, now: float) -> bool:
+    def snapshot(self) -> List[ClassifierOutput]:
+        """Current sentence contents, without clearing."""
+        return list(self._entries)
+
+    def is_full(self) -> bool:
+        return len(self._entries) >= self.max_segments
+
+    def should_reset(self, now: float) -> bool:
+        """True when the signer has been idle long enough to close the
+        sentence — the next sign starts a fresh one."""
         if not self._entries:
             return False
-        if len(self._entries) >= self.max_segments:
-            return True
         elapsed_ms = (now - self._last_push_ts) * 1000.0
         return elapsed_ms >= self.flush_pause_ms
 

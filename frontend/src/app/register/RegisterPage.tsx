@@ -10,14 +10,12 @@ import {
   Typography,
   TextField,
   Button,
-  Divider,
   Alert,
   InputAdornment,
   IconButton,
   CircularProgress,
 } from '@mui/material';
 import {
-  Google as GoogleIcon,
   Visibility,
   VisibilityOff,
   Email as EmailIcon,
@@ -28,7 +26,7 @@ import {
 import { useAuth } from '@/hooks/useAuth';
 
 const RegisterPage = () => {
-  const { register, googleLogin } = useAuth();
+  const { register } = useAuth();
   const router = useRouter();
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -63,16 +61,6 @@ const RegisterPage = () => {
       setError(error.response?.data?.message || 'Błąd rejestracji. Spróbuj ponownie.');
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const handleGoogleLogin = async () => {
-    setError('');
-    try {
-      await googleLogin({ credential: 'google-oauth-token' });
-      router.push('/');
-    } catch {
-      setError('Błąd logowania przez Google.');
     }
   };
 
@@ -274,31 +262,6 @@ const RegisterPage = () => {
               {isLoading ? <CircularProgress size={24} color="inherit" /> : 'Zarejestruj się'}
             </Button>
           </form>
-
-          <Divider sx={{ my: 2 }}>
-            <Typography variant="body2" color="text.secondary">
-              lub
-            </Typography>
-          </Divider>
-
-          <Button
-            fullWidth
-            variant="outlined"
-            size="large"
-            onClick={handleGoogleLogin}
-            startIcon={<GoogleIcon />}
-            sx={{
-              py: 1.5,
-              borderColor: 'rgba(255, 255, 255, 0.12)',
-              color: 'text.primary',
-              '&:hover': {
-                borderColor: 'rgba(255, 255, 255, 0.3)',
-                bgcolor: 'rgba(255, 255, 255, 0.04)',
-              },
-            }}
-          >
-            Zarejestruj przez Google
-          </Button>
 
           <Box sx={{ mt: 3, textAlign: 'center' }}>
             <Typography variant="body2" color="text.secondary">

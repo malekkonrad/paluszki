@@ -6,7 +6,6 @@ import {
   VideocamOff as VideocamOffIcon,
   CallEnd as CallEndIcon,
   ScreenShare as ScreenShareIcon,
-  BugReport as BugReportIcon,
   ContentCopy as CopyIcon,
   Translate as TranslateIcon,
   MonitorHeart as MonitorHeartIcon,
@@ -15,12 +14,11 @@ import {
 interface MeetingControlsProps {
   isMuted: boolean;
   isCameraOff: boolean;
-  isDebugActive: boolean;
   isTranslationActive: boolean;
   isPulseActive: boolean;
+  isScreenSharing: boolean;
   onToggleMute: () => void;
   onToggleCamera: () => void;
-  onToggleDebug: () => void;
   onToggleTranslation: () => void;
   onTogglePulse: () => void;
   onScreenShare: () => void;
@@ -31,12 +29,11 @@ interface MeetingControlsProps {
 const MeetingControls = ({
   isMuted,
   isCameraOff,
-  isDebugActive,
   isTranslationActive,
   isPulseActive,
+  isScreenSharing,
   onToggleMute,
   onToggleCamera,
-  onToggleDebug,
   onToggleTranslation,
   onTogglePulse,
   onScreenShare,
@@ -57,6 +54,7 @@ const MeetingControls = ({
       {/* Mute */}
       <Tooltip title={isMuted ? 'Włącz mikrofon' : 'Wycisz mikrofon'}>
         <IconButton
+          aria-label="mikrofon"
           onClick={onToggleMute}
           sx={{
             width: 52,
@@ -79,6 +77,7 @@ const MeetingControls = ({
       {/* Camera */}
       <Tooltip title={isCameraOff ? 'Włącz kamerę' : 'Wyłącz kamerę'}>
         <IconButton
+          aria-label="kamera"
           onClick={onToggleCamera}
           sx={{
             width: 52,
@@ -99,17 +98,24 @@ const MeetingControls = ({
       </Tooltip>
 
       {/* Screen Share */}
-      <Tooltip title="Udostępnij ekran">
+      <Tooltip title={isScreenSharing ? 'Zatrzymaj udostępnianie ekranu' : 'Udostępnij ekran'}>
         <IconButton
+          aria-label="udostępnianie ekranu"
           onClick={onScreenShare}
           sx={{
             width: 52,
             height: 52,
-            bgcolor: 'rgba(255, 255, 255, 0.08)',
-            border: '2px solid rgba(255, 255, 255, 0.08)',
-            color: '#E8EAED',
+            bgcolor: isScreenSharing
+              ? 'rgba(0, 229, 255, 0.15)'
+              : 'rgba(255, 255, 255, 0.08)',
+            border: isScreenSharing
+              ? '2px solid rgba(0, 229, 255, 0.4)'
+              : '2px solid rgba(255, 255, 255, 0.08)',
+            color: isScreenSharing ? '#00E5FF' : '#E8EAED',
             '&:hover': {
-              bgcolor: 'rgba(255, 255, 255, 0.12)',
+              bgcolor: isScreenSharing
+                ? 'rgba(0, 229, 255, 0.25)'
+                : 'rgba(255, 255, 255, 0.12)',
               transform: 'scale(1.1)',
             },
           }}
@@ -121,6 +127,7 @@ const MeetingControls = ({
       {/* Sign-language translation */}
       <Tooltip title={isTranslationActive ? 'Wyłącz tłumaczenie migowego' : 'Włącz tłumaczenie migowego'}>
         <IconButton
+          aria-label="tłumaczenie migowego"
           onClick={onToggleTranslation}
           sx={{
             width: 52,
@@ -147,6 +154,7 @@ const MeetingControls = ({
       {/* Pulse detection (rPPG) */}
       <Tooltip title={isPulseActive ? 'Wyłącz detekcję pulsu' : 'Włącz detekcję pulsu'}>
         <IconButton
+          aria-label="detekcja pulsu"
           onClick={onTogglePulse}
           sx={{
             width: 52,
@@ -170,35 +178,10 @@ const MeetingControls = ({
         </IconButton>
       </Tooltip>
 
-      {/* Debug Overlay */}
-      <Tooltip title={isDebugActive ? 'Wyłącz debug overlay' : 'Włącz debug overlay'}>
-        <IconButton
-          onClick={onToggleDebug}
-          sx={{
-            width: 52,
-            height: 52,
-            bgcolor: isDebugActive
-              ? 'rgba(255, 215, 64, 0.15)'
-              : 'rgba(255, 255, 255, 0.08)',
-            border: isDebugActive
-              ? '2px solid rgba(255, 215, 64, 0.3)'
-              : '2px solid rgba(255, 255, 255, 0.08)',
-            color: isDebugActive ? '#FFD740' : '#E8EAED',
-            '&:hover': {
-              bgcolor: isDebugActive
-                ? 'rgba(255, 215, 64, 0.25)'
-                : 'rgba(255, 255, 255, 0.12)',
-              transform: 'scale(1.1)',
-            },
-          }}
-        >
-          <BugReportIcon />
-        </IconButton>
-      </Tooltip>
-
       {/* Copy Link */}
       <Tooltip title="Kopiuj link spotkania">
         <IconButton
+          aria-label="kopiuj link"
           onClick={onCopyLink}
           sx={{
             width: 52,
@@ -219,6 +202,7 @@ const MeetingControls = ({
       {/* End Call */}
       <Tooltip title="Zakończ połączenie">
         <IconButton
+          aria-label="zakończ połączenie"
           onClick={onEndCall}
           sx={{
             width: 56,

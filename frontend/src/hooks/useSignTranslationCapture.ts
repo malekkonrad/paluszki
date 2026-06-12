@@ -20,7 +20,10 @@ interface UseSignTranslationCaptureOptions {
 export const useSignTranslationCapture = ({
   localStream,
   enabled,
-  fps = 5,
+  // 15, not 5: the ML service sustains ~30 fps (31 ms/frame measured), and at
+  // 5 fps the segmenter needs seconds of stillness to close a sign while
+  // short signs fall under min_segment_frames and are dropped entirely.
+  fps = 15,
   width = 480,
   height = 360,
 }: UseSignTranslationCaptureOptions): void => {

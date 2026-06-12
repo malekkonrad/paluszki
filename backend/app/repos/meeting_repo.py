@@ -67,6 +67,22 @@ async def get_meeting_by_id(db: AsyncSession, meeting_id: int) -> Meeting | None
     return result.scalar_one_or_none()
 
 
+async def get_participant(db: AsyncSession, meeting_id: int, user_id: int) -> Participant | None:
+    # populate_existing: the caller's session may hold this row from an
+    # earlier load (e.g. the WS connect), and approval is committed on a
+    # *different* session — without it we'd keep returning the stale status.
+    stmt = (
+        select(Participant)
+        .where(
+            Participant.meeting_id == meeting_id,
+            Participant.user_id == user_id,
+        )
+        .execution_options(populate_existing=True)
+    )
+    result = await db.execute(stmt)
+    return result.scalar_one_or_none()
+
+
 async def add_participant(
     db: AsyncSession, meeting_id: int, user_id: int, status: ParticipantStatus = ParticipantStatus.waiting, is_host: bool = False
 ) -> Participant:

@@ -41,7 +41,10 @@ class SignTranslationService(TranslationService):
 
     async def initialize(self) -> None:
         try:
-            resp = await self._client.post("/sessions")
+            # speaker_name is set by the TranslationManager before initialize;
+            # the ML service feeds it to the LLM prompt for gender agreement.
+            payload = {"speaker_name": getattr(self, "speaker_name", None)}
+            resp = await self._client.post("/sessions", json=payload)
             resp.raise_for_status()
             self._session_id = resp.json()["session_id"]
         except Exception as exc:  # noqa: BLE001 — surface a clear failure
@@ -105,5 +108,6 @@ class SignTranslationService(TranslationService):
             user_id=task.user_id,
             gesture_label=data.get("gestureLabel"),
             confidence=data.get("confidence") or 0.0,
+            gesture_accepted=data.get("gestureAccepted"),
             text=data.get("text"),
         )

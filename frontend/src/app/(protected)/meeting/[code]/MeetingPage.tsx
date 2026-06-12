@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { Box, Snackbar, Alert } from '@mui/material';
 import { useAuth } from '@/hooks/useAuth';
 import { useWebRTC } from '@/hooks/useWebRTC';
-import { useDebugStream } from '@/hooks/useDebugStream';
 import { useSignTranslationCapture } from '@/hooks/useSignTranslationCapture';
 import { useTranslationOverlay } from '@/hooks/useTranslationOverlay';
 import { usePulseCapture } from '@/hooks/usePulseCapture';
@@ -27,26 +26,35 @@ const MeetingPage = ({ code }: MeetingPageProps) => {
   const { user, token } = useAuth();
   const router = useRouter();
 
+  // True once we're confirmed (or just registered) as a participant — the
+  // backend rejects WS connections from non-participants, so connecting
+  // before the REST join completes would get closed with 4003.
+  const [isParticipantReady, setIsParticipantReady] = useState(false);
+
   const {
     localStream,
+    screenStream,
+    isScreenSharing,
     remoteStreams,
     peerNames,
+    peerStates,
     isMuted,
     isCameraOff,
     toggleMute,
     toggleCamera,
+    startScreenShare,
+    stopScreenShare,
     startLocalStream,
     stopLocalStream,
   } = useWebRTC({
     meetingCode: code || '',
     token: token || '',
     userId: user?.id || '',
+    ready: isParticipantReady,
   });
 
-  const { debugStream, isDebugActive, toggleDebug } = useDebugStream(code || '');
-
   const [isTranslationActive, setIsTranslationActive] = useState(false);
-  const { getTranslationFor } = useTranslationOverlay();
+  const { getTranslationFor, getDetectionFor } = useTranslationOverlay();
   useSignTranslationCapture({ localStream, enabled: isTranslationActive });
 
   const [isPulseActive, setIsPulseActive] = useState(false);
@@ -55,9 +63,10 @@ const MeetingPage = ({ code }: MeetingPageProps) => {
 
   const [messages, setMessages] = useState<IChatMessage[]>([]);
   const [waitingParticipants, setWaitingParticipants] = useState<IParticipant[]>([]);
+  const [participantNames, setParticipantNames] = useState<Map<string, string>>(new Map());
   const [isHost, setIsHost] = useState(false);
   const [isWaiting, setIsWaiting] = useState(false);
-  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'info' | 'error' }>({
+  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'info' | 'warning' | 'error' }>({
     open: false,
     message: '',
     severity: 'info',
@@ -71,23 +80,47 @@ const MeetingPage = ({ code }: MeetingPageProps) => {
         const meeting = await MeetingService.getByCode(code);
         setIsHost(meeting.hostId === user?.id);
 
-        const myParticipant = meeting.participants.find(p => p.userId === user?.id);
-        if (myParticipant?.status === 'waiting') {
-          setIsWaiting(true);
+        let myParticipant = meeting.participants.find(p => p.userId === user?.id);
+        if (!myParticipant) {
+          // Opened via a shared link — join first so the waiting-room flow
+          // applies (otherwise the guest would bypass host approval).
+          const { status } = await MeetingService.join(code);
+          myParticipant = {
+            userId: user?.id || '',
+            firstName: user?.firstName || '',
+            lastName: user?.lastName || '',
+            status: status as IParticipant['status'],
+            joinedAt: new Date().toISOString(),
+            isHost: false,
+          };
         }
+        const waiting = myParticipant.status === 'waiting';
+        setIsWaiting(waiting);
 
         setWaitingParticipants(meeting.participants.filter(p => p.status === 'waiting'));
-      } catch {
-        // Backend not available yet, simulate as host
-        setIsHost(true);
-      }
+        setParticipantNames(new Map(
+          meeting.participants.map(p => [p.userId, `${p.firstName} ${p.lastName}`]),
+        ));
+        setIsParticipantReady(true);
 
-      try {
-        await startLocalStream();
-      } catch {
+        // Don't grab the camera while in the waiting room — it starts on
+        // approval (see the participant_approved handler).
+        if (!waiting) {
+          await startLocalStream();
+        }
+      } catch (err) {
+        if (err instanceof DOMException) {
+          // getUserMedia failure — we're in the meeting, just without media.
+          setSnackbar({
+            open: true,
+            message: 'Nie udało się pobrać dostępu do kamery/mikrofonu',
+            severity: 'error',
+          });
+          return;
+        }
         setSnackbar({
           open: true,
-          message: 'Nie udało się pobrać dostępu do kamery/mikrofonu',
+          message: 'Nie udało się dołączyć do spotkania — sprawdź kod lub spróbuj ponownie',
           severity: 'error',
         });
       }
@@ -123,6 +156,14 @@ const MeetingPage = ({ code }: MeetingPageProps) => {
       const payload = msg.payload as { userId: string };
       if (payload.userId === user?.id) {
         setIsWaiting(false);
+        // Camera was deliberately not started in the waiting room.
+        startLocalStream().catch(() => {
+          setSnackbar({
+            open: true,
+            message: 'Nie udało się pobrać dostępu do kamery/mikrofonu',
+            severity: 'error',
+          });
+        });
       }
       setWaitingParticipants((prev) => prev.filter(p => p.userId !== payload.userId));
     });
@@ -134,6 +175,36 @@ const MeetingPage = ({ code }: MeetingPageProps) => {
         setSnackbar({ open: true, message: 'Twoja prośba o dołączenie została odrzucona.', severity: 'error' });
       }
       setWaitingParticipants((prev) => prev.filter(p => p.userId !== payload.userId));
+    });
+
+    const unsubReconnecting = ws.on('ws_reconnecting', (msg) => {
+      const { attempt, max } = msg.payload as { attempt: number; max: number };
+      setSnackbar({
+        open: true,
+        message: `Utracono połączenie z serwerem — ponawianie (${attempt}/${max})...`,
+        severity: 'warning',
+      });
+    });
+
+    const unsubReconnected = ws.on('ws_reconnected', () => {
+      setSnackbar({ open: true, message: 'Połączenie z serwerem przywrócone', severity: 'success' });
+    });
+
+    const unsubWsFailed = ws.on('ws_failed', () => {
+      setSnackbar({
+        open: true,
+        message: 'Nie udało się przywrócić połączenia — odśwież stronę',
+        severity: 'error',
+      });
+    });
+
+    const unsubTakeover = ws.on('session_takeover', () => {
+      setSnackbar({
+        open: true,
+        message: 'To konto dołączyło do spotkania z innej karty lub urządzenia — ta sesja została rozłączona.',
+        severity: 'error',
+      });
+      window.setTimeout(() => router.push('/'), 3000);
     });
 
     const unsubJoined = ws.on('participant_joined', (msg) => {
@@ -157,9 +228,13 @@ const MeetingPage = ({ code }: MeetingPageProps) => {
       unsubChat();
       unsubApproved();
       unsubRejected();
+      unsubReconnecting();
+      unsubReconnected();
+      unsubWsFailed();
+      unsubTakeover();
       unsubJoined();
     };
-  }, [code, user?.id, router]);
+  }, [code, user?.id, router, startLocalStream]);
 
   const handleSendMessage = useCallback((content: string) => {
     if (!user || !code) return;
@@ -200,20 +275,32 @@ const MeetingPage = ({ code }: MeetingPageProps) => {
   }, [code]);
 
   const handleScreenShare = useCallback(async () => {
+    if (isScreenSharing) {
+      stopScreenShare();
+      setSnackbar({ open: true, message: 'Udostępnianie ekranu zakończone', severity: 'info' });
+      return;
+    }
     try {
-      await navigator.mediaDevices.getDisplayMedia({ video: true });
+      await startScreenShare();
       setSnackbar({ open: true, message: 'Udostępnianie ekranu aktywne', severity: 'info' });
     } catch {
+      // User cancelled the picker or permission denied — no banner needed
+      // beyond the failure case.
       setSnackbar({ open: true, message: 'Nie udało się udostępnić ekranu', severity: 'error' });
     }
-  }, []);
+  }, [isScreenSharing, startScreenShare, stopScreenShare]);
 
   const handleEndCall = useCallback(() => {
+    // Tell the backend we left (deactivates the meeting if we're the host);
+    // fire-and-forget so a failed request doesn't trap the user in the call.
+    if (code) {
+      MeetingService.leave(code).catch(() => {});
+    }
     stopLocalStream();
     const ws = WebSocketService.getInstance();
     ws.disconnect();
     router.push('/');
-  }, [stopLocalStream, router]);
+  }, [code, stopLocalStream, router]);
 
   const handleCopyLink = useCallback(() => {
     navigator.clipboard.writeText(window.location.href);
@@ -264,7 +351,10 @@ const MeetingPage = ({ code }: MeetingPageProps) => {
   return (
     <Box
       sx={{
-        height: '100vh',
+        // The protected Layout already offsets the fixed 64px navbar with its
+        // own padding — sizing to the full viewport here pushed the controls
+        // bar 64px below the screen.
+        height: 'calc(100vh - 64px)',
         display: 'flex',
         flexDirection: 'column',
         background: 'linear-gradient(135deg, #0A0E1A 0%, #111827 100%)',
@@ -278,7 +368,6 @@ const MeetingPage = ({ code }: MeetingPageProps) => {
           display: 'flex',
           flexDirection: { xs: 'column', md: 'row' },
           overflow: 'hidden',
-          pt: '64px',
         }}
       >
         {/* Chat Panel - Left side */}
@@ -308,16 +397,22 @@ const MeetingPage = ({ code }: MeetingPageProps) => {
           }}
         >
           <VideoGrid
-            localStream={localStream}
+            // While sharing, the local tile previews the screen (unmirrored),
+            // matching what the peers receive in the video slot.
+            localStream={screenStream ?? localStream}
+            isScreenSharing={isScreenSharing}
             remoteStreams={remoteStreams}
-            peerNames={peerNames}
+            // REST roster names as fallback — a late joiner only learns names
+            // of users who join *after* them (participant_joined), so peers
+            // already in the room would otherwise show as "Uczestnik".
+            peerNames={new Map([...participantNames, ...peerNames])}
+            peerStates={peerStates}
             isCameraOff={isCameraOff}
             isMuted={isMuted}
-            debugStream={debugStream}
-            isDebugActive={isDebugActive}
             currentUserName={currentUserName}
             localUserId={user?.id || ''}
             getTranslationFor={getTranslationFor}
+            getDetectionFor={getDetectionFor}
             getPulseFor={getPulseFor}
           />
 
@@ -332,12 +427,11 @@ const MeetingPage = ({ code }: MeetingPageProps) => {
             <MeetingControls
               isMuted={isMuted}
               isCameraOff={isCameraOff}
-              isDebugActive={isDebugActive}
               isTranslationActive={isTranslationActive}
               isPulseActive={isPulseActive}
+              isScreenSharing={isScreenSharing}
               onToggleMute={toggleMute}
               onToggleCamera={toggleCamera}
-              onToggleDebug={toggleDebug}
               onToggleTranslation={handleToggleTranslation}
               onTogglePulse={handleTogglePulse}
               onScreenShare={handleScreenShare}
