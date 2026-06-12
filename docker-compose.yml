@@ -32,6 +32,12 @@ services:
       args:
         NEXT_PUBLIC_API_BASE_URL: https://paluszki-back.ivk.pl/api
         NEXT_PUBLIC_WS_BASE_URL: wss://paluszki-back.ivk.pl/ws
+        # Self-hosted TURN relay (the coturn service below). NOTE: for peers
+        # outside this network the router must forward UDP/TCP 3478 and
+        # UDP 49160-49200 to this machine; unreachable TURN is ignored by ICE.
+        NEXT_PUBLIC_TURN_HOST: 130.255.153.202
+        NEXT_PUBLIC_TURN_USERNAME: paluszki
+        NEXT_PUBLIC_TURN_PASSWORD: paluszki-turn-7c4dff
     ports:
       - "3000:3000"
     healthcheck:
@@ -61,6 +67,30 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
+
+  # TURN relay for WebRTC: when direct P2P can't traverse the NATs, media is
+  # relayed through here. External reachability requires forwarding UDP/TCP
+  # 3478 + UDP 49160-49200 on the router to this machine.
+  coturn:
+    image: coturn/coturn
+    restart: unless-stopped
+    ports:
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+      - "49160-49200:49160-49200/udp"
+    command: >
+      -n
+      --log-file=stdout
+      --listening-port=3478
+      --min-port=49160
+      --max-port=49200
+      --realm=paluszki
+      --user=paluszki:paluszki-turn-7c4dff
+      --lt-cred-mech
+      --fingerprint
+      --no-multicast-peers
+      --no-cli
+      --external-ip=$$(detect-external-ip)
 
   ollama:
     image: ollama/ollama

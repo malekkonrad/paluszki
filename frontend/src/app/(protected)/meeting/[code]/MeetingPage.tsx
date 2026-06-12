@@ -37,6 +37,7 @@ const MeetingPage = ({ code }: MeetingPageProps) => {
     isScreenSharing,
     remoteStreams,
     peerNames,
+    peerStates,
     isMuted,
     isCameraOff,
     toggleMute,
@@ -65,7 +66,7 @@ const MeetingPage = ({ code }: MeetingPageProps) => {
   const [participantNames, setParticipantNames] = useState<Map<string, string>>(new Map());
   const [isHost, setIsHost] = useState(false);
   const [isWaiting, setIsWaiting] = useState(false);
-  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'info' | 'error' }>({
+  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'info' | 'warning' | 'error' }>({
     open: false,
     message: '',
     severity: 'info',
@@ -176,6 +177,36 @@ const MeetingPage = ({ code }: MeetingPageProps) => {
       setWaitingParticipants((prev) => prev.filter(p => p.userId !== payload.userId));
     });
 
+    const unsubReconnecting = ws.on('ws_reconnecting', (msg) => {
+      const { attempt, max } = msg.payload as { attempt: number; max: number };
+      setSnackbar({
+        open: true,
+        message: `Utracono połączenie z serwerem — ponawianie (${attempt}/${max})...`,
+        severity: 'warning',
+      });
+    });
+
+    const unsubReconnected = ws.on('ws_reconnected', () => {
+      setSnackbar({ open: true, message: 'Połączenie z serwerem przywrócone', severity: 'success' });
+    });
+
+    const unsubWsFailed = ws.on('ws_failed', () => {
+      setSnackbar({
+        open: true,
+        message: 'Nie udało się przywrócić połączenia — odśwież stronę',
+        severity: 'error',
+      });
+    });
+
+    const unsubTakeover = ws.on('session_takeover', () => {
+      setSnackbar({
+        open: true,
+        message: 'To konto dołączyło do spotkania z innej karty lub urządzenia — ta sesja została rozłączona.',
+        severity: 'error',
+      });
+      window.setTimeout(() => router.push('/'), 3000);
+    });
+
     const unsubJoined = ws.on('participant_joined', (msg) => {
       const payload = msg.payload as { userId: string; firstName: string; lastName: string; status?: string };
       if (payload.status === 'waiting') {
@@ -197,6 +228,10 @@ const MeetingPage = ({ code }: MeetingPageProps) => {
       unsubChat();
       unsubApproved();
       unsubRejected();
+      unsubReconnecting();
+      unsubReconnected();
+      unsubWsFailed();
+      unsubTakeover();
       unsubJoined();
     };
   }, [code, user?.id, router, startLocalStream]);
@@ -316,7 +351,10 @@ const MeetingPage = ({ code }: MeetingPageProps) => {
   return (
     <Box
       sx={{
-        height: '100vh',
+        // The protected Layout already offsets the fixed 64px navbar with its
+        // own padding — sizing to the full viewport here pushed the controls
+        // bar 64px below the screen.
+        height: 'calc(100vh - 64px)',
         display: 'flex',
         flexDirection: 'column',
         background: 'linear-gradient(135deg, #0A0E1A 0%, #111827 100%)',
@@ -330,7 +368,6 @@ const MeetingPage = ({ code }: MeetingPageProps) => {
           display: 'flex',
           flexDirection: { xs: 'column', md: 'row' },
           overflow: 'hidden',
-          pt: '64px',
         }}
       >
         {/* Chat Panel - Left side */}
@@ -369,6 +406,7 @@ const MeetingPage = ({ code }: MeetingPageProps) => {
             // of users who join *after* them (participant_joined), so peers
             // already in the room would otherwise show as "Uczestnik".
             peerNames={new Map([...participantNames, ...peerNames])}
+            peerStates={peerStates}
             isCameraOff={isCameraOff}
             isMuted={isMuted}
             currentUserName={currentUserName}

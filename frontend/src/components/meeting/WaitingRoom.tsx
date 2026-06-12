@@ -179,6 +179,7 @@ const WaitingRoom = ({
                   <Button
                     size="small"
                     variant="contained"
+                    aria-label="zatwierdź uczestnika"
                     onClick={() => onApprove(participant.userId)}
                     sx={{
                       minWidth: 36,
@@ -200,6 +201,7 @@ const WaitingRoom = ({
                   <Button
                     size="small"
                     variant="contained"
+                    aria-label="odrzuć uczestnika"
                     onClick={() => onReject(participant.userId)}
                     sx={{
                       minWidth: 36,

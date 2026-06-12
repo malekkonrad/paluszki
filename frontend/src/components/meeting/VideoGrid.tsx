@@ -1,4 +1,4 @@
-import { Box, Typography, Paper, Avatar, Chip } from '@mui/material';
+import { Box, Typography, Paper, Avatar, Chip, CircularProgress } from '@mui/material';
 import {
   MicOff as MicOffIcon,
   MonitorHeart as MonitorHeartIcon,
@@ -21,6 +21,7 @@ interface VideoGridProps {
   isScreenSharing: boolean;
   remoteStreams: Map<string, MediaStream>;
   peerNames: Map<string, string>;
+  peerStates: Map<string, RTCPeerConnectionState>;
   isCameraOff: boolean;
   isMuted: boolean;
   currentUserName: string;
@@ -42,19 +43,24 @@ interface VideoTileProps {
   caption?: string | null;
   detection?: Detection | null;
   pulse?: PulseReading | null;
+  connectionState?: RTCPeerConnectionState;
 }
 
 // Below this peak-to-band power ratio the reading is likely motion/noise, so
 // we dim the badge rather than hide it (keeps the UI from flickering).
 const PULSE_CONFIDENCE_FLOOR = 0.12;
 
-const VideoTile = ({ stream, name, isMuted, isCameraOff, isLocal, mirror, caption, detection, pulse }: VideoTileProps) => {
+const VideoTile = ({ stream, name, isMuted, isCameraOff, isLocal, mirror, caption, detection, pulse, connectionState }: VideoTileProps) => {
+  const isReconnecting =
+    connectionState === 'disconnected' || connectionState === 'failed' || connectionState === 'connecting';
   // Callback ref instead of useEffect: the <video> unmounts while the camera
   // is off (avatar branch) and a plain effect keyed on [stream] never re-runs
   // for the remounted element, leaving it black after re-enabling the camera.
   const attachStream = (el: HTMLVideoElement | null) => {
     if (el && stream && el.srcObject !== stream) {
       el.srcObject = stream;
+      // autoplay can be rejected (policy/transient states); retry explicitly.
+      el.play().catch(() => {});
     }
   };
 
@@ -201,6 +207,31 @@ const VideoTile = ({ stream, name, isMuted, isCameraOff, isLocal, mirror, captio
         />
       )}
 
+      {/* Connection-state overlay — shown while the peer link is recovering */}
+      {isReconnecting && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 1,
+            bgcolor: 'rgba(10, 14, 26, 0.55)',
+            backdropFilter: 'blur(2px)',
+          }}
+        >
+          <CircularProgress size={28} sx={{ color: '#FFD740' }} />
+          <Typography variant="caption" sx={{ color: '#FFD740', fontWeight: 600 }}>
+            {connectionState === 'connecting' ? 'Łączenie...' : 'Przywracanie połączenia...'}
+          </Typography>
+        </Box>
+      )}
+
       {/* Sign-language translation caption (subtitle style) */}
       {caption && (
         <Box
@@ -243,6 +274,7 @@ const VideoGrid = ({
   isScreenSharing,
   remoteStreams,
   peerNames,
+  peerStates,
   isCameraOff,
   isMuted,
   currentUserName,
@@ -295,6 +327,7 @@ const VideoGrid = ({
             caption={getTranslationFor(peerId)?.text ?? null}
             detection={getDetectionFor(peerId)}
             pulse={getPulseFor(peerId)}
+            connectionState={peerStates.get(peerId)}
           />
         ))}
       </Box>

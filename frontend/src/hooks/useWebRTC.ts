@@ -23,6 +23,8 @@ interface UseWebRTCReturn {
   isScreenSharing: boolean;
   remoteStreams: Map<string, MediaStream>;
   peerNames: Map<string, string>;
+  /** Live RTCPeerConnection state per peer, for "reconnecting" badges. */
+  peerStates: Map<string, RTCPeerConnectionState>;
   isMuted: boolean;
   isCameraOff: boolean;
   toggleMute: () => void;
@@ -33,10 +35,28 @@ interface UseWebRTCReturn {
   stopLocalStream: () => void;
 }
 
+// Optional self-hosted TURN relay (coturn in docker-compose) — used when the
+// direct P2P path can't traverse the NATs. Baked in at build time.
+const TURN_HOST = process.env.NEXT_PUBLIC_TURN_HOST || '';
+const TURN_USERNAME = process.env.NEXT_PUBLIC_TURN_USERNAME || 'paluszki';
+const TURN_PASSWORD = process.env.NEXT_PUBLIC_TURN_PASSWORD || '';
+
 const ICE_SERVERS: RTCConfiguration = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
+    ...(TURN_HOST && TURN_PASSWORD
+      ? [
+          {
+            urls: [
+              `turn:${TURN_HOST}:3478?transport=udp`,
+              `turn:${TURN_HOST}:3478?transport=tcp`,
+            ],
+            username: TURN_USERNAME,
+            credential: TURN_PASSWORD,
+          },
+        ]
+      : []),
   ],
 };
 
@@ -45,6 +65,7 @@ export const useWebRTC = ({ meetingCode, token, userId, ready = true }: UseWebRT
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
   const [remoteStreams, setRemoteStreams] = useState<Map<string, MediaStream>>(new Map());
   const [peerNames, setPeerNames] = useState<Map<string, string>>(new Map());
+  const [peerStates, setPeerStates] = useState<Map<string, RTCPeerConnectionState>>(new Map());
   const [isMuted, setIsMuted] = useState(false);
   const [isCameraOff, setIsCameraOff] = useState(false);
   const peersRef = useRef<Map<string, PeerConnection>>(new Map());
@@ -54,6 +75,27 @@ export const useWebRTC = ({ meetingCode, token, userId, ready = true }: UseWebRT
   // ICE candidates that arrived before the peer's remote description was set
   // (handlers are async, so a candidate can outrun setRemoteDescription).
   const pendingCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
+  // Perfect-negotiation state: true while we're producing an offer for a peer.
+  // Offers can cross (glare) — e.g. our post-approval offer vs. the guest's
+  // renegotiation after their camera starts — and without rollback handling
+  // one side drops the other's offer, leaving one-directional video.
+  const makingOfferRef = useRef<Map<string, boolean>>(new Map());
+
+  // Deterministic role per peer pair: the "polite" side rolls back its own
+  // offer on collision and answers; the "impolite" side ignores the incoming
+  // offer (its own will be answered by the polite peer).
+  const isPoliteWith = (peerId: string): boolean => Number(userId) < Number(peerId);
+
+  const sendOffer = async (peerId: string, pc: RTCPeerConnection) => {
+    makingOfferRef.current.set(peerId, true);
+    try {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      wsRef.current?.sendSignaling('sdp_offer', peerId, offer);
+    } finally {
+      makingOfferRef.current.set(peerId, false);
+    }
+  };
 
   const createPeerConnection = useCallback((targetUserId: string): RTCPeerConnection => {
     const pc = new RTCPeerConnection(ICE_SERVERS);
@@ -76,9 +118,31 @@ export const useWebRTC = ({ meetingCode, token, userId, ready = true }: UseWebRT
     };
 
     pc.onconnectionstatechange = () => {
-      // 'disconnected' is often transient (esp. in Chrome) and recovers on
-      // its own — tearing the peer down there makes users vanish mid-call.
-      if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+      const state = pc.connectionState;
+      setPeerStates((prev) => new Map(prev).set(targetUserId, state));
+
+      if (state === 'failed') {
+        // Auto-reconnect: restart ICE over the same connection (new
+        // candidates, fresh paths). Crossing restart offers from both sides
+        // are resolved by perfect negotiation. Only if the restart doesn't
+        // recover do we tear the peer down.
+        console.warn(`[WebRTC] connection to ${targetUserId} failed — restarting ICE`);
+        try {
+          pc.restartIce();
+          void sendOffer(targetUserId, pc).catch((err) =>
+            console.error('[WebRTC] ICE-restart offer failed', err),
+          );
+        } catch {
+          removePeer(targetUserId);
+          return;
+        }
+        window.setTimeout(() => {
+          if (peersRef.current.get(targetUserId)?.connection === pc && pc.connectionState === 'failed') {
+            console.error(`[WebRTC] ICE restart for ${targetUserId} did not recover — dropping peer`);
+            removePeer(targetUserId);
+          }
+        }, 10000);
+      } else if (state === 'closed') {
         removePeer(targetUserId);
       }
     };
@@ -120,6 +184,7 @@ export const useWebRTC = ({ meetingCode, token, userId, ready = true }: UseWebRT
 
   const removePeer = useCallback((targetUserId: string) => {
     pendingCandidatesRef.current.delete(targetUserId);
+    makingOfferRef.current.delete(targetUserId);
     const peer = peersRef.current.get(targetUserId);
     if (peer) {
       peer.connection.close();
@@ -130,6 +195,11 @@ export const useWebRTC = ({ meetingCode, token, userId, ready = true }: UseWebRT
         return next;
       });
       setPeerNames((prev) => {
+        const next = new Map(prev);
+        next.delete(targetUserId);
+        return next;
+      });
+      setPeerStates((prev) => {
         const next = new Map(prev);
         next.delete(targetUserId);
         return next;
@@ -179,9 +249,7 @@ export const useWebRTC = ({ meetingCode, token, userId, ready = true }: UseWebRT
         if (isWaitingGuest) return;
 
         const pc = createPeerConnection(joinedUserId);
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        wsRef.current?.sendSignaling('sdp_offer', joinedUserId, offer);
+        await sendOffer(joinedUserId, pc);
         break;
       }
 
@@ -193,6 +261,20 @@ export const useWebRTC = ({ meetingCode, token, userId, ready = true }: UseWebRT
         if (!pc) {
           pc = createPeerConnection(senderId);
         }
+
+        // Perfect negotiation: offers can cross. The impolite side ignores
+        // the incoming one (its own offer will be answered); the polite side
+        // rolls its own back and answers.
+        const offerCollision =
+          makingOfferRef.current.get(senderId) === true || pc.signalingState !== 'stable';
+        if (offerCollision) {
+          if (!isPoliteWith(senderId)) {
+            console.warn(`[WebRTC] offer collision with ${senderId} — ignoring (impolite)`);
+            return;
+          }
+          await pc.setLocalDescription({ type: 'rollback' });
+        }
+
         await pc.setRemoteDescription(new RTCSessionDescription(payload.data as RTCSessionDescriptionInit));
         await flushPendingCandidates(senderId, pc);
         const answer = await pc.createAnswer();
@@ -205,7 +287,10 @@ export const useWebRTC = ({ meetingCode, token, userId, ready = true }: UseWebRT
         const senderId = payload.senderId as string || message.senderId as string;
         if (!senderId) return;
         const pc = peersRef.current.get(senderId)?.connection;
-        if (pc) {
+        // An answer is only valid against our outstanding offer; anything
+        // else is a stale leftover from a collision — applying it would throw
+        // and (worse) wedge the connection.
+        if (pc && pc.signalingState === 'have-local-offer') {
           await pc.setRemoteDescription(new RTCSessionDescription(payload.data as RTCSessionDescriptionInit));
           await flushPendingCandidates(senderId, pc);
         }
@@ -226,7 +311,13 @@ export const useWebRTC = ({ meetingCode, token, userId, ready = true }: UseWebRT
           pendingCandidatesRef.current.set(senderId, queue);
           return;
         }
-        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        } catch (err) {
+          // Candidates from an offer we deliberately ignored (collision)
+          // don't match the active negotiation — safe to drop.
+          console.warn('[WebRTC] dropped ICE candidate', err);
+        }
         break;
       }
 
@@ -279,13 +370,14 @@ export const useWebRTC = ({ meetingCode, token, userId, ready = true }: UseWebRT
       if (missing.length === 0) return;
       missing.forEach((track) => pc.addTrack(track, localStream));
       try {
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        wsRef.current?.sendSignaling('sdp_offer', peerId, offer);
+        await sendOffer(peerId, pc);
       } catch (err) {
-        console.error('[WebRTC] renegotiation after stream ready failed', err);
+        // A collision here is fine: the tracks are already attached, so they
+        // ride along in the answer we produce for the peer's crossing offer.
+        console.warn('[WebRTC] renegotiation offer superseded', err);
       }
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [localStream]);
 
   const startLocalStream = useCallback(async () => {
@@ -389,6 +481,7 @@ export const useWebRTC = ({ meetingCode, token, userId, ready = true }: UseWebRT
     isScreenSharing: screenStream !== null,
     remoteStreams,
     peerNames,
+    peerStates,
     isMuted,
     isCameraOff,
     toggleMute,

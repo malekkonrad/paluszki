@@ -54,6 +54,7 @@ const MeetingControls = ({
       {/* Mute */}
       <Tooltip title={isMuted ? 'Włącz mikrofon' : 'Wycisz mikrofon'}>
         <IconButton
+          aria-label="mikrofon"
           onClick={onToggleMute}
           sx={{
             width: 52,
@@ -76,6 +77,7 @@ const MeetingControls = ({
       {/* Camera */}
       <Tooltip title={isCameraOff ? 'Włącz kamerę' : 'Wyłącz kamerę'}>
         <IconButton
+          aria-label="kamera"
           onClick={onToggleCamera}
           sx={{
             width: 52,
@@ -98,6 +100,7 @@ const MeetingControls = ({
       {/* Screen Share */}
       <Tooltip title={isScreenSharing ? 'Zatrzymaj udostępnianie ekranu' : 'Udostępnij ekran'}>
         <IconButton
+          aria-label="udostępnianie ekranu"
           onClick={onScreenShare}
           sx={{
             width: 52,
@@ -124,6 +127,7 @@ const MeetingControls = ({
       {/* Sign-language translation */}
       <Tooltip title={isTranslationActive ? 'Wyłącz tłumaczenie migowego' : 'Włącz tłumaczenie migowego'}>
         <IconButton
+          aria-label="tłumaczenie migowego"
           onClick={onToggleTranslation}
           sx={{
             width: 52,
@@ -150,6 +154,7 @@ const MeetingControls = ({
       {/* Pulse detection (rPPG) */}
       <Tooltip title={isPulseActive ? 'Wyłącz detekcję pulsu' : 'Włącz detekcję pulsu'}>
         <IconButton
+          aria-label="detekcja pulsu"
           onClick={onTogglePulse}
           sx={{
             width: 52,
@@ -176,6 +181,7 @@ const MeetingControls = ({
       {/* Copy Link */}
       <Tooltip title="Kopiuj link spotkania">
         <IconButton
+          aria-label="kopiuj link"
           onClick={onCopyLink}
           sx={{
             width: 52,
@@ -196,6 +202,7 @@ const MeetingControls = ({
       {/* End Call */}
       <Tooltip title="Zakończ połączenie">
         <IconButton
+          aria-label="zakończ połączenie"
           onClick={onEndCall}
           sx={{
             width: 56,

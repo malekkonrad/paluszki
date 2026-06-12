@@ -19,7 +19,14 @@ export type WsMessageType =
   | 'video_frame'
   | 'translation_result'
   | 'pulse_samples'
-  | 'pulse_result';
+  | 'pulse_result'
+  /** Synthetic, client-side only: this account opened the meeting elsewhere
+   *  and the server kicked this socket (close code 4008). */
+  | 'session_takeover'
+  /** Synthetic, client-side only: connection-state notifications. */
+  | 'ws_reconnecting'
+  | 'ws_reconnected'
+  | 'ws_failed';
 
 export interface IWsMessage {
   type: WsMessageType;
