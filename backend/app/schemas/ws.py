@@ -13,10 +13,6 @@ class WsMessageType(str, Enum):
     PARTICIPANT_LEFT = "participant_left"
     PARTICIPANT_APPROVED = "participant_approved"
     PARTICIPANT_REJECTED = "participant_rejected"
-    SDP_DEBUG_OFFER = "sdp_debug_offer"
-    SDP_DEBUG_ANSWER = "sdp_debug_answer"
-    ICE_DEBUG_CANDIDATE = "ice_debug_candidate"
-    DEBUG_OVERLAY_TOGGLE = "debug_overlay_toggle"
     VIDEO_FRAME = "video_frame"
     TRANSLATION_RESULT = "translation_result"
     PULSE_SAMPLES = "pulse_samples"
@@ -54,10 +50,6 @@ class ParticipantPayload(BaseModel):
     status: str | None = None
 
 
-class DebugTogglePayload(BaseModel):
-    enabled: bool = False
-
-
 class VideoFramePayload(BaseModel):
     frameB64: str
     ts: float = 0.0
@@ -68,6 +60,7 @@ class TranslationResultPayload(BaseModel):
     text: str | None = None
     gestureLabel: str | None = None
     confidence: float = 0.0
+    gestureAccepted: bool | None = None
 
 
 class PulseSamplesPayload(BaseModel):
@@ -122,10 +115,22 @@ def make_signaling_forward(msg_type: WsMessageType, sender_id: int, data: dict |
     )
 
 
-def make_translation_result(user_id: int, text: str | None, gesture_label: str | None, confidence: float) -> WsMessage:
+def make_translation_result(
+    user_id: int,
+    text: str | None,
+    gesture_label: str | None,
+    confidence: float,
+    gesture_accepted: bool | None = None,
+) -> WsMessage:
     return WsMessage(
         type=WsMessageType.TRANSLATION_RESULT,
-        payload=TranslationResultPayload(userId=str(user_id), text=text, gestureLabel=gesture_label, confidence=confidence).model_dump(),
+        payload=TranslationResultPayload(
+            userId=str(user_id),
+            text=text,
+            gestureLabel=gesture_label,
+            confidence=confidence,
+            gestureAccepted=gesture_accepted,
+        ).model_dump(),
     )
 
 

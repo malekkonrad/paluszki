@@ -92,20 +92,6 @@ class WebSocketService {
     });
   }
 
-  sendDebugSignaling(type: 'sdp_debug_offer' | 'sdp_debug_answer' | 'ice_debug_candidate', payload: RTCSessionDescriptionInit | RTCIceCandidateInit): void {
-    this.sendMessage({
-      type,
-      payload: { data: payload },
-    });
-  }
-
-  toggleDebugOverlay(enabled: boolean): void {
-    this.sendMessage({
-      type: 'debug_overlay_toggle',
-      payload: { enabled },
-    });
-  }
-
   sendVideoFrame(frameB64: string, ts: number): void {
     this.sendMessage({
       type: 'video_frame',

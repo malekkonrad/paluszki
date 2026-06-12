@@ -13,7 +13,10 @@ import {
   InputAdornment,
   CircularProgress,
   Divider,
+  Snackbar,
+  Alert,
 } from '@mui/material';
+import { AxiosError } from 'axios';
 import {
   VideoCall as VideoCallIcon,
   Groups as GroupsIcon,
@@ -31,6 +34,7 @@ const DashboardPage = () => {
   const [meetingCode, setMeetingCode] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleCreateMeeting = async () => {
     setIsCreating(true);
@@ -38,9 +42,7 @@ const DashboardPage = () => {
       const response = await MeetingService.create();
       router.push(`/meeting/${response.code}`);
     } catch {
-      // Na razie tworzymy mock meeting code
-      const mockCode = Math.random().toString(36).substring(2, 10);
-      router.push(`/meeting/${mockCode}`);
+      setError('Nie udało się utworzyć spotkania — spróbuj ponownie');
     } finally {
       setIsCreating(false);
     }
@@ -52,8 +54,15 @@ const DashboardPage = () => {
     try {
       await MeetingService.join(meetingCode.trim());
       router.push(`/meeting/${meetingCode.trim()}`);
-    } catch {
-      router.push(`/meeting/${meetingCode.trim()}`);
+    } catch (err) {
+      const status = err instanceof AxiosError ? err.response?.status : undefined;
+      if (status === 404) {
+        setError('Spotkanie o tym kodzie nie istnieje');
+      } else if (status === 410) {
+        setError('To spotkanie zostało już zakończone');
+      } else {
+        setError('Nie udało się dołączyć do spotkania — spróbuj ponownie');
+      }
     } finally {
       setIsJoining(false);
     }
@@ -312,6 +321,17 @@ const DashboardPage = () => {
           </Box>
         ))}
       </Box>
+
+      <Snackbar
+        open={error !== null}
+        autoHideDuration={5000}
+        onClose={() => setError(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert onClose={() => setError(null)} severity="error" variant="filled" sx={{ borderRadius: 2 }}>
+          {error}
+        </Alert>
+      </Snackbar>
     </Container>
   );
 };

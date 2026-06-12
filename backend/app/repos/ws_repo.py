@@ -6,10 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.connection_manager import connection_manager
 from app.models.user import User
-from app.repos import meeting_repo
+from app.repos import auth_repo, meeting_repo
 from app.schemas.ws import (
     WsMessageType,
-    WsMessage,
     make_chat_message,
     make_participant_joined,
     make_participant_left,
@@ -50,9 +49,14 @@ async def on_connect(meeting_code: str, user: User, status: str | None = None) -
     logger.info(f"[WS] User {user.id} ({user.name}) joined meeting {meeting_code} (status={status})")
 
 
-async def on_disconnect(meeting_code: str, user_id: int) -> None:
+async def on_disconnect(meeting_code: str, user_id: int, websocket=None) -> None:
     """Handle a user disconnecting from a meeting WebSocket."""
-    connection_manager.disconnect(meeting_code, user_id)
+    connection_manager.disconnect(meeting_code, user_id, websocket)
+
+    # If another socket of the same user already took over (second login from
+    # the same account kicks the old one), don't tear down the live session.
+    if connection_manager.is_connected(meeting_code, user_id):
+        return
 
     # Tear down this user's translation session + ticker.
     key = (meeting_code, user_id)
@@ -88,17 +92,20 @@ async def handle_message(
 
     payload = raw_message.get("payload", {})
 
+    # Waiting-room enforcement: until the host approves, a guest's socket only
+    # exists to receive the approval notification — chat, signaling and media
+    # from them are dropped server-side (the UI hides them too, but the UI is
+    # not a security boundary).
+    if msg_type not in (WsMessageType.PARTICIPANT_APPROVED, WsMessageType.PARTICIPANT_REJECTED):
+        participant = await meeting_repo.get_participant(db, meeting_id, user.id)
+        if participant is None or participant.status.value != "approved":
+            return
+
     if msg_type == WsMessageType.CHAT_MESSAGE:
         await _handle_chat(db, meeting_code, meeting_id, user, payload)
 
     elif msg_type in (WsMessageType.SDP_OFFER, WsMessageType.SDP_ANSWER, WsMessageType.ICE_CANDIDATE):
         await _handle_signaling(meeting_code, user.id, msg_type, payload)
-
-    elif msg_type in (WsMessageType.SDP_DEBUG_OFFER, WsMessageType.SDP_DEBUG_ANSWER, WsMessageType.ICE_DEBUG_CANDIDATE):
-        await _handle_debug_signaling(meeting_code, user.id, msg_type, payload)
-
-    elif msg_type == WsMessageType.DEBUG_OVERLAY_TOGGLE:
-        await _handle_debug_toggle(meeting_code, user.id, payload)
 
     elif msg_type == WsMessageType.VIDEO_FRAME:
         await _handle_video_frame(meeting_code, user, payload)
@@ -107,10 +114,10 @@ async def handle_message(
         await _handle_pulse_samples(meeting_code, user, payload)
 
     elif msg_type == WsMessageType.PARTICIPANT_APPROVED:
-        await _handle_participant_approval(db, meeting_code, meeting_id, payload, approved=True)
+        await _handle_participant_approval(db, meeting_code, meeting_id, user, payload, approved=True)
 
     elif msg_type == WsMessageType.PARTICIPANT_REJECTED:
-        await _handle_participant_approval(db, meeting_code, meeting_id, payload, approved=False)
+        await _handle_participant_approval(db, meeting_code, meeting_id, user, payload, approved=False)
 
 
 # ── Private handlers ──────────────────────────────────────────
@@ -132,24 +139,17 @@ async def _handle_signaling(meeting_code: str, sender_id: int, msg_type: WsMessa
     await connection_manager.send_to_user(meeting_code, target_user_id, msg.model_dump())
 
 
-async def _handle_debug_signaling(meeting_code: str, sender_id: int, msg_type: WsMessageType, payload: dict) -> None:
-    msg = WsMessage(type=msg_type, payload=payload, senderId=str(sender_id))
-    await connection_manager.broadcast(meeting_code, msg.model_dump(), exclude_user_id=sender_id)
-
-
-async def _handle_debug_toggle(meeting_code: str, user_id: int, payload: dict) -> None:
-    enabled = payload.get("enabled", False)
-    logger.info(f"[WS] Debug overlay {'enabled' if enabled else 'disabled'} for user {user_id} in meeting {meeting_code}")
-
-
 # ── Sign-language translation ─────────────────────────────────
 
 async def _broadcast_translation(meeting_code: str, user_id: int, result) -> None:
     """Broadcast a translation_result to everyone in the meeting (no exclude —
-    the signer sees their own caption too)."""
-    if result is None or not result.text:
+    the signer sees their own caption too). Sent for finished sentences AND
+    bare per-sign detections (text=None) so tiles can show the live label."""
+    if result is None or (not result.text and not result.gesture_label):
         return
-    msg = make_translation_result(user_id, result.text, result.gesture_label, result.confidence)
+    msg = make_translation_result(
+        user_id, result.text, result.gesture_label, result.confidence, result.gesture_accepted
+    )
     await connection_manager.broadcast(meeting_code, msg.model_dump())
 
 
@@ -172,7 +172,9 @@ async def _handle_video_frame(meeting_code: str, user: User, payload: dict) -> N
         return
 
     async with lock:
-        service = await translation_manager.get_or_register(meeting_code, user.id)
+        service = await translation_manager.get_or_register(
+            meeting_code, user.id, speaker_name=f"{user.name} {user.surname}"
+        )
         _ensure_ticker(meeting_code, user.id)
         task = TranslationTask(meeting_code=meeting_code, user_id=str(user.id), frame_data=frame_data)
         result = await service.process_frame(task)
@@ -225,10 +227,20 @@ async def _handle_pulse_samples(meeting_code: str, user: User, payload: dict) ->
 
 
 async def _handle_participant_approval(
-    db: AsyncSession, meeting_code: str, meeting_id: int, payload: dict, approved: bool
+    db: AsyncSession, meeting_code: str, meeting_id: int, sender: User, payload: dict, approved: bool
 ) -> None:
     target_user_id = int(payload.get("userId", 0))
     if not target_user_id:
+        return
+
+    # Same rule as the REST approve/reject endpoints: only the host decides.
+    # Without this, any connected user could approve themselves into the call.
+    meeting = await meeting_repo.get_meeting_by_id(db, meeting_id)
+    if meeting is None or meeting.host_id != sender.id:
+        logger.warning(
+            f"[WS] User {sender.id} tried to {'approve' if approved else 'reject'} "
+            f"participant {target_user_id} in meeting {meeting_code} without being host"
+        )
         return
 
     status = "approved" if approved else "rejected"
@@ -237,3 +249,18 @@ async def _handle_participant_approval(
     await meeting_repo.update_participant_status(db, meeting_id, target_user_id, status)
     msg = make_participant_status(msg_type, target_user_id)
     await connection_manager.send_to_user(meeting_code, target_user_id, msg.model_dump())
+
+    if approved:
+        await announce_approved_participant(db, meeting_code, target_user_id)
+
+
+async def announce_approved_participant(db: AsyncSession, meeting_code: str, user_id: int) -> None:
+    """Broadcast participant_joined(approved) after host approval.
+
+    Peers deliberately don't open WebRTC offers towards waiting guests — this
+    re-announcement is what triggers them to connect once the guest is let in."""
+    target = await auth_repo.get_user_by_id(db, user_id)
+    if target is None:
+        return
+    joined = make_participant_joined(target.id, target.name, target.surname, target.avatar_url, "approved")
+    await connection_manager.broadcast(meeting_code, joined.model_dump(), exclude_user_id=user_id)

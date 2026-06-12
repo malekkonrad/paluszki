@@ -62,6 +62,12 @@ _pulse: Dict[str, PulseEstimator] = {}
 _pulse_locks: Dict[str, asyncio.Lock] = {}
 
 
+class CreateSessionRequest(BaseModel):
+    # Shown to the LLM so the sentence can match the signer's grammatical
+    # gender (Polish past-tense verbs etc.).
+    speaker_name: Optional[str] = None
+
+
 class CreateSessionResponse(BaseModel):
     session_id: str
 
@@ -70,6 +76,8 @@ class TranslationResponse(BaseModel):
     text: Optional[str] = None
     gestureLabel: Optional[str] = None
     confidence: float = 0.0
+    # Whether the detected sign passed min_confidence (None = no new sign).
+    gestureAccepted: Optional[bool] = None
 
 
 def _to_response(result) -> TranslationResponse:
@@ -99,13 +107,19 @@ async def healthz() -> dict:
 
 
 @app.post("/sessions", response_model=CreateSessionResponse)
-async def create_session() -> CreateSessionResponse:
+async def create_session(req: Optional[CreateSessionRequest] = None) -> CreateSessionResponse:
+    speaker_name = req.speaker_name if req else None
     # Blocking: loads the checkpoint + spins up MediaPipe. Off the event loop.
-    session = await asyncio.to_thread(build_session_from_config, _CONFIG_PATH)
+    session = await asyncio.to_thread(
+        build_session_from_config, _CONFIG_PATH, speaker_name=speaker_name
+    )
     session_id = uuid.uuid4().hex
     _sessions[session_id] = session
     _locks[session_id] = asyncio.Lock()
-    logger.info("session created: %s (active=%d)", session_id[:8], len(_sessions))
+    logger.info(
+        "session created: %s (active=%d, speaker=%s)",
+        session_id[:8], len(_sessions), speaker_name or "-",
+    )
     return CreateSessionResponse(session_id=session_id)
 
 
@@ -119,7 +133,17 @@ async def push_frame(session_id: str, request: Request) -> TranslationResponse:
         return TranslationResponse()
     async with _locks[session_id]:
         result = await session.push_frame(bgr)
-    return _log_result(session_id, _to_response(result))
+        new_sign = session.consume_new_sign()
+    resp = _to_response(result)
+    # Live per-sign detection: report the segment classified on this frame
+    # even when no sentence flushed yet.
+    if new_sign is not None:
+        sign, accepted = new_sign
+        if sign.top_k:
+            resp.gestureLabel = sign.top_k[0][0]
+            resp.confidence = float(sign.raw_argmax_conf)
+            resp.gestureAccepted = accepted
+    return _log_result(session_id, resp)
 
 
 @app.post("/sessions/{session_id}/tick", response_model=TranslationResponse)

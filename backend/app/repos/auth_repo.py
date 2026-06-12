@@ -1,5 +1,4 @@
-from http.client import HTTPException
-from fastapi import Depends, HTTPException, status
+from fastapi import HTTPException, status
 
 import bcrypt
 from sqlalchemy import select

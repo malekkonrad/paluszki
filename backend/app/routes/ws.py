@@ -36,7 +36,7 @@ async def websocket_meeting(
 
     Handles: chat_message, sdp_offer/answer, ice_candidate,
     participant_joined/left, participant_approved/rejected,
-    sdp_debug_*, debug_overlay_toggle, translation_result.
+    video_frame, translation_result, pulse_samples, pulse_result.
     """
     user_id = _authenticate_ws(token)
     if user_id is None:
@@ -53,14 +53,21 @@ async def websocket_meeting(
         await websocket.close(code=4004, reason="Meeting not found")
         return
 
-    await websocket.accept()
-    connection_manager.connect(code, user_id, websocket)
-    # Pass the connecting user's participant status so the host can show
-    # waiting guests in the approval panel.
+    # Only participants may attach to the meeting socket. Waiting guests are
+    # allowed (they need the approval notification), rejected ones are not.
     participant_status = next(
         (p.status.value for p in (meeting.participants or []) if p.user_id == user_id),
         None,
     )
+    if participant_status is None:
+        await websocket.close(code=4003, reason="Not a participant")
+        return
+    if participant_status == "rejected":
+        await websocket.close(code=4003, reason="Rejected")
+        return
+
+    await websocket.accept()
+    await connection_manager.connect(code, user_id, websocket)
     await ws_repo.on_connect(code, user, participant_status)
 
     try:
@@ -76,4 +83,4 @@ async def websocket_meeting(
     except Exception as e:
         logger.error(f"[WS] Error for user {user_id} in meeting {code}: {e}")
     finally:
-        await ws_repo.on_disconnect(code, user_id)
+        await ws_repo.on_disconnect(code, user_id, websocket)

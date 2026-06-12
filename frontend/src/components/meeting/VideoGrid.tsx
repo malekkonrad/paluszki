@@ -1,9 +1,8 @@
-import { useEffect, useRef } from 'react';
 import { Box, Typography, Paper, Avatar, Chip } from '@mui/material';
 import {
   MicOff as MicOffIcon,
-  BugReport as BugReportIcon,
   MonitorHeart as MonitorHeartIcon,
+  SignLanguage as SignLanguageIcon,
 } from '@mui/icons-material';
 
 interface PulseReading {
@@ -11,17 +10,23 @@ interface PulseReading {
   confidence: number;
 }
 
+interface Detection {
+  gestureLabel: string;
+  confidence: number;
+  accepted: boolean;
+}
+
 interface VideoGridProps {
   localStream: MediaStream | null;
+  isScreenSharing: boolean;
   remoteStreams: Map<string, MediaStream>;
   peerNames: Map<string, string>;
   isCameraOff: boolean;
   isMuted: boolean;
-  debugStream: MediaStream | null;
-  isDebugActive: boolean;
   currentUserName: string;
   localUserId: string;
   getTranslationFor: (userId: string) => { text: string } | null;
+  getDetectionFor: (userId: string) => Detection | null;
   getPulseFor: (userId: string) => PulseReading | null;
 }
 
@@ -31,7 +36,11 @@ interface VideoTileProps {
   isMuted?: boolean;
   isCameraOff?: boolean;
   isLocal?: boolean;
+  /** Mirror the video horizontally; defaults to isLocal (self-view), but a
+   *  shared screen must never be mirrored. */
+  mirror?: boolean;
   caption?: string | null;
+  detection?: Detection | null;
   pulse?: PulseReading | null;
 }
 
@@ -39,7 +48,7 @@ interface VideoTileProps {
 // we dim the badge rather than hide it (keeps the UI from flickering).
 const PULSE_CONFIDENCE_FLOOR = 0.12;
 
-const VideoTile = ({ stream, name, isMuted, isCameraOff, isLocal, caption, pulse }: VideoTileProps) => {
+const VideoTile = ({ stream, name, isMuted, isCameraOff, isLocal, mirror, caption, detection, pulse }: VideoTileProps) => {
   // Callback ref instead of useEffect: the <video> unmounts while the camera
   // is off (avatar branch) and a plain effect keyed on [stream] never re-runs
   // for the remounted element, leaving it black after re-enabling the camera.
@@ -79,7 +88,7 @@ const VideoTile = ({ stream, name, isMuted, isCameraOff, isLocal, caption, pulse
             width: '100%',
             height: '100%',
             objectFit: 'cover',
-            transform: isLocal ? 'scaleX(-1)' : 'none',
+            transform: (mirror ?? isLocal) ? 'scaleX(-1)' : 'none',
           }}
         />
       ) : (
@@ -150,6 +159,27 @@ const VideoTile = ({ stream, name, isMuted, isCameraOff, isLocal, caption, pulse
         )}
       </Box>
 
+      {/* Live sign detection — top-left, dimmed when below the threshold */}
+      {detection && (
+        <Chip
+          icon={<SignLanguageIcon sx={{ fontSize: 16, color: '#7C4DFF !important' }} />}
+          label={`${detection.gestureLabel} ${Math.round(detection.confidence * 100)}%`}
+          size="small"
+          sx={{
+            position: 'absolute',
+            top: 8,
+            left: 8,
+            bgcolor: 'rgba(0, 0, 0, 0.6)',
+            backdropFilter: 'blur(8px)',
+            color: '#fff',
+            fontSize: '0.75rem',
+            fontWeight: 600,
+            height: 26,
+            opacity: detection.accepted ? 1 : 0.45,
+          }}
+        />
+      )}
+
       {/* Pulse (rPPG) badge — top-right, dimmed when the signal is weak */}
       {pulse && (
         <Chip
@@ -210,25 +240,18 @@ const VideoTile = ({ stream, name, isMuted, isCameraOff, isLocal, caption, pulse
 
 const VideoGrid = ({
   localStream,
+  isScreenSharing,
   remoteStreams,
   peerNames,
   isCameraOff,
   isMuted,
-  debugStream,
-  isDebugActive,
   currentUserName,
   localUserId,
   getTranslationFor,
+  getDetectionFor,
   getPulseFor,
 }: VideoGridProps) => {
-  const debugVideoRef = useRef<HTMLVideoElement>(null);
   const totalParticipants = 1 + remoteStreams.size;
-
-  useEffect(() => {
-    if (debugVideoRef.current && debugStream) {
-      debugVideoRef.current.srcObject = debugStream;
-    }
-  }, [debugStream]);
 
   const getGridColumns = () => {
     if (totalParticipants <= 1) return '1fr';
@@ -253,9 +276,13 @@ const VideoGrid = ({
           stream={localStream}
           name={currentUserName}
           isMuted={isMuted}
-          isCameraOff={isCameraOff}
+          // The shared screen should stay visible even with the camera off,
+          // and must not be mirrored like the self-view.
+          isCameraOff={isCameraOff && !isScreenSharing}
+          mirror={!isScreenSharing}
           isLocal
           caption={getTranslationFor(localUserId)?.text ?? null}
+          detection={getDetectionFor(localUserId)}
           pulse={getPulseFor(localUserId)}
         />
 
@@ -266,54 +293,11 @@ const VideoGrid = ({
             stream={stream}
             name={peerNames.get(peerId) || 'Uczestnik'}
             caption={getTranslationFor(peerId)?.text ?? null}
+            detection={getDetectionFor(peerId)}
             pulse={getPulseFor(peerId)}
           />
         ))}
       </Box>
-
-      {/* Debug overlay stream */}
-      {isDebugActive && debugStream && (
-        <Paper
-          elevation={0}
-          sx={{
-            position: 'relative',
-            width: '100%',
-            maxHeight: 240,
-            borderRadius: 3,
-            overflow: 'hidden',
-            border: '2px solid rgba(255, 215, 64, 0.4)',
-            bgcolor: '#1A1A2E',
-          }}
-        >
-          <video
-            ref={debugVideoRef}
-            autoPlay
-            playsInline
-            muted
-            style={{
-              width: '100%',
-              height: '100%',
-              objectFit: 'contain',
-              maxHeight: 240,
-            }}
-          />
-          <Chip
-            icon={<BugReportIcon sx={{ fontSize: 16 }} />}
-            label="Debug Overlay"
-            size="small"
-            sx={{
-              position: 'absolute',
-              top: 8,
-              left: 8,
-              bgcolor: 'rgba(255, 215, 64, 0.15)',
-              color: '#FFD740',
-              border: '1px solid rgba(255, 215, 64, 0.3)',
-              fontWeight: 600,
-              fontSize: '0.7rem',
-            }}
-          />
-        </Paper>
-      )}
 
       {/* No participants message */}
       {remoteStreams.size === 0 && (

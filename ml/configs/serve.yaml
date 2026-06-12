@@ -49,9 +49,11 @@ pipeline:
     max_segment_frames: 90        # ~3s maximum (safety cap)
     velocity_smoothing: 0.5
 
+  # The sentence is retranslated after EVERY accepted sign (live updates);
+  # the buffer holds "the sentence so far" instead of flushing per pause.
   buffer:
-    max_segments: 8               # flush after this many signs even without pause
-    flush_pause_ms: 1500          # flush if no new sign for this long
+    max_segments: 8               # commit the sentence after this many signs
+    flush_pause_ms: 10000         # idle this long → sentence closed, next sign starts fresh
 
   extractor:
     static_image_mode: false      # true = match training exactly (slower)

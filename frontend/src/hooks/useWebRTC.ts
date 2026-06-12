@@ -12,16 +12,23 @@ interface UseWebRTCOptions {
   meetingCode: string;
   token: string;
   userId: string;
+  /** Gate the WS connection until we're registered as a participant —
+   *  the backend rejects sockets from non-participants (4003). */
+  ready?: boolean;
 }
 
 interface UseWebRTCReturn {
   localStream: MediaStream | null;
+  screenStream: MediaStream | null;
+  isScreenSharing: boolean;
   remoteStreams: Map<string, MediaStream>;
   peerNames: Map<string, string>;
   isMuted: boolean;
   isCameraOff: boolean;
   toggleMute: () => void;
   toggleCamera: () => void;
+  startScreenShare: () => Promise<void>;
+  stopScreenShare: () => void;
   startLocalStream: () => Promise<void>;
   stopLocalStream: () => void;
 }
@@ -33,14 +40,16 @@ const ICE_SERVERS: RTCConfiguration = {
   ],
 };
 
-export const useWebRTC = ({ meetingCode, token, userId }: UseWebRTCOptions): UseWebRTCReturn => {
+export const useWebRTC = ({ meetingCode, token, userId, ready = true }: UseWebRTCOptions): UseWebRTCReturn => {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
   const [remoteStreams, setRemoteStreams] = useState<Map<string, MediaStream>>(new Map());
   const [peerNames, setPeerNames] = useState<Map<string, string>>(new Map());
   const [isMuted, setIsMuted] = useState(false);
   const [isCameraOff, setIsCameraOff] = useState(false);
   const peersRef = useRef<Map<string, PeerConnection>>(new Map());
   const localStreamRef = useRef<MediaStream | null>(null);
+  const screenStreamRef = useRef<MediaStream | null>(null);
   const wsRef = useRef<WebSocketService | null>(null);
   // ICE candidates that arrived before the peer's remote description was set
   // (handlers are async, so a candidate can outrun setRemoteDescription).
@@ -75,8 +84,15 @@ export const useWebRTC = ({ meetingCode, token, userId }: UseWebRTCOptions): Use
     };
 
     if (localStreamRef.current) {
+      // While screen sharing, peers created mid-share must receive the screen
+      // track in the video slot (the camera track is restored on share end).
+      const activeScreenTrack = screenStreamRef.current?.getVideoTracks()[0] ?? null;
       localStreamRef.current.getTracks().forEach((track) => {
-        pc.addTrack(track, localStreamRef.current!);
+        if (track.kind === 'video' && activeScreenTrack) {
+          pc.addTrack(activeScreenTrack, localStreamRef.current!);
+        } else {
+          pc.addTrack(track, localStreamRef.current!);
+        }
       });
     }
 
@@ -140,11 +156,27 @@ export const useWebRTC = ({ meetingCode, token, userId }: UseWebRTCOptions): Use
         const joinedUserId = payload.userId as string;
         if (joinedUserId === userId) return;
 
-        setPeerNames((prev) => {
-          const next = new Map(prev);
-          next.set(joinedUserId, `${payload.firstName} ${payload.lastName}`);
-          return next;
-        });
+        // Waiting guests are connected only to hear the approval — the server
+        // re-broadcasts participant_joined(approved) once the host lets them
+        // in, and that's when we open WebRTC towards them.
+        const isWaitingGuest = payload.status === 'waiting';
+
+        // A re-join (page refresh, second device takeover) means any previous
+        // connection to this user is dead — start clean. (Also clears the
+        // name, so record it after.)
+        if (!isWaitingGuest) {
+          removePeer(joinedUserId);
+        }
+
+        if (payload.firstName) {
+          setPeerNames((prev) => {
+            const next = new Map(prev);
+            next.set(joinedUserId, `${payload.firstName} ${payload.lastName}`);
+            return next;
+          });
+        }
+
+        if (isWaitingGuest) return;
 
         const pc = createPeerConnection(joinedUserId);
         const offer = await pc.createOffer();
@@ -206,27 +238,28 @@ export const useWebRTC = ({ meetingCode, token, userId }: UseWebRTCOptions): Use
     }
   };
 
+  // Connect as soon as we're in the meeting — independent of the camera.
+  // The WS carries presence/approval/chat, which must work even if the
+  // local camera is unavailable (e.g. a second browser on the same machine
+  // can't grab the one webcam). Media tracks are attached separately, with
+  // renegotiation once the local stream arrives (see effect below).
+  //
+  // Deliberately NOT keyed on the message handler: its identity changes when
+  // the auth user resolves, and reconnecting then makes the server broadcast
+  // participant_left/joined — everyone else briefly drops this user's tile.
   useEffect(() => {
     const ws = WebSocketService.getInstance();
     wsRef.current = ws;
-
-    // Connect as soon as we're in the meeting — independent of the camera.
-    // The WS carries presence/approval/chat, which must work even if the
-    // local camera is unavailable (e.g. a second browser on the same machine
-    // can't grab the one webcam). Media tracks are attached separately, with
-    // renegotiation once the local stream arrives (see effect below).
-    if (meetingCode && token) {
+    if (meetingCode && token && ready) {
       ws.connect(meetingCode, token);
-      const unsubscribe = ws.on('all', handleWsMessage);
-
-      return () => {
-        unsubscribe();
-        peersRef.current.forEach((peer) => peer.connection.close());
-        peersRef.current.clear();
-        setRemoteStreams(new Map());
-      };
     }
-  }, [meetingCode, token, handleWsMessage]);
+  }, [meetingCode, token, ready]);
+
+  useEffect(() => {
+    const ws = WebSocketService.getInstance();
+    const unsubscribe = ws.on('all', handleWsMessage);
+    return unsubscribe;
+  }, [handleWsMessage]);
 
   // If the local stream becomes available after a peer connection was already
   // created (e.g. a guest whose camera resolved after the host's offer
@@ -239,7 +272,10 @@ export const useWebRTC = ({ meetingCode, token, userId }: UseWebRTCOptions): Use
       const senders = pc.getSenders();
       const missing = localStream
         .getTracks()
-        .filter((track) => !senders.some((s) => s.track === track));
+        .filter((track) => !senders.some((s) => s.track === track))
+        // While sharing, the video slot intentionally carries the screen
+        // track — don't add the camera as a second video track.
+        .filter((track) => !(track.kind === 'video' && screenStreamRef.current));
       if (missing.length === 0) return;
       missing.forEach((track) => pc.addTrack(track, localStream));
       try {
@@ -274,6 +310,45 @@ export const useWebRTC = ({ meetingCode, token, userId }: UseWebRTCOptions): Use
     }
   }, []);
 
+  const stopScreenShare = useCallback(() => {
+    const stream = screenStreamRef.current;
+    if (!stream) return;
+    stream.getTracks().forEach((track) => track.stop());
+    screenStreamRef.current = null;
+    setScreenStream(null);
+    // Put the camera back into every peer's video slot.
+    const cameraTrack = localStreamRef.current?.getVideoTracks()[0] ?? null;
+    peersRef.current.forEach((peer) => {
+      const sender = peer.connection.getSenders().find((s) => s.track?.kind === 'video');
+      if (sender) {
+        sender.replaceTrack(cameraTrack).catch((err) => {
+          console.error('[WebRTC] restoring camera after screen share failed', err);
+        });
+      }
+    });
+  }, []);
+
+  const startScreenShare = useCallback(async () => {
+    if (screenStreamRef.current) return;
+    const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+    const screenTrack = stream.getVideoTracks()[0];
+    if (!screenTrack) return;
+    // Swap the outgoing video track in-place — same m-line, so no
+    // renegotiation; remotes see the screen in this user's existing tile.
+    peersRef.current.forEach((peer) => {
+      const sender = peer.connection.getSenders().find((s) => s.track?.kind === 'video');
+      if (sender) {
+        sender.replaceTrack(screenTrack).catch((err) => {
+          console.error('[WebRTC] switching to screen track failed', err);
+        });
+      }
+    });
+    // Browser's own "Stop sharing" bar ends the track — clean up then too.
+    screenTrack.onended = () => stopScreenShare();
+    screenStreamRef.current = stream;
+    setScreenStream(stream);
+  }, [stopScreenShare]);
+
   const toggleMute = useCallback(() => {
     if (localStreamRef.current) {
       const audioTrack = localStreamRef.current.getAudioTracks()[0];
@@ -296,7 +371,13 @@ export const useWebRTC = ({ meetingCode, token, userId }: UseWebRTCOptions): Use
 
   useEffect(() => {
     return () => {
+      screenStreamRef.current?.getTracks().forEach((track) => track.stop());
+      screenStreamRef.current = null;
       stopLocalStream();
+      peersRef.current.forEach((peer) => peer.connection.close());
+      peersRef.current.clear();
+      pendingCandidatesRef.current.clear();
+      setRemoteStreams(new Map());
       const ws = WebSocketService.getInstance();
       ws.disconnect();
     };
@@ -304,12 +385,16 @@ export const useWebRTC = ({ meetingCode, token, userId }: UseWebRTCOptions): Use
 
   return {
     localStream,
+    screenStream,
+    isScreenSharing: screenStream !== null,
     remoteStreams,
     peerNames,
     isMuted,
     isCameraOff,
     toggleMute,
     toggleCamera,
+    startScreenShare,
+    stopScreenShare,
     startLocalStream,
     stopLocalStream,
   };

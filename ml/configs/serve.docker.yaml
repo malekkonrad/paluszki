@@ -25,18 +25,27 @@ pipeline:
   target_lang: pl                 # 'pl' | 'en'
   min_confidence: 0.3             # drop segments where top-1 prob < this
 
+  # Tuned for the production stream: the browser captures at 15 fps
+  # (useSignTranslationCapture), not the 30 fps the local webcam script uses.
   segmenter:
     motion_threshold: 0.02        # smoothed mean-abs-diff of hand keypoints
-    pause_frames: 9               # ~0.3s @ 30fps → end of sign
-    min_segment_frames: 8         # ~0.27s minimum sign length
-    max_segment_frames: 90        # ~3s maximum (safety cap)
+    pause_frames: 15              # ~1s @ 15fps of stillness → end of sign
+                                  # (shorter pauses were splitting one sign
+                                  # into several detections)
+    min_segment_frames: 4         # ~0.27s minimum sign length
+    max_segment_frames: 45        # ~3s maximum (safety cap)
     velocity_smoothing: 0.5
 
+  # The sentence is retranslated after EVERY accepted sign (live updates);
+  # the buffer holds "the sentence so far" instead of flushing per pause.
   buffer:
-    max_segments: 8               # flush after this many signs even without pause
-    flush_pause_ms: 1500          # flush if no new sign for this long
+    max_segments: 8               # commit the sentence after this many signs
+    flush_pause_ms: 10000         # idle this long → sentence closed, next sign starts fresh
 
+  # Match the training-time extraction exactly (extract_keypoints_from_video:
+  # static_image_mode=True, confidence 0.3) — tracking mode feeds the
+  # classifier keypoints from a different distribution than it was trained on.
   extractor:
-    static_image_mode: false      # true = match training exactly (slower)
-    min_detection_confidence: 0.5
-    min_tracking_confidence: 0.5
+    static_image_mode: true
+    min_detection_confidence: 0.3
+    min_tracking_confidence: 0.3

@@ -5,7 +5,7 @@ from app.connection_manager import connection_manager
 from app.database import get_db
 from app.models.participant import ParticipantStatus
 from app.models.user import User
-from app.repos import meeting_repo
+from app.repos import meeting_repo, ws_repo
 from app.schemas.meeting import (
     CreateMeetingRequest,
     CreateMeetingResponse,
@@ -111,6 +111,8 @@ async def approve_participant(
     # Notify the guest over WS so their client leaves the waiting screen.
     msg = make_participant_status(WsMessageType.PARTICIPANT_APPROVED, user_id)
     await connection_manager.send_to_user(code, user_id, msg.model_dump())
+    # Tell the others — peers start WebRTC towards the guest only now.
+    await ws_repo.announce_approved_participant(db, code, user_id)
     return {"status": "approved"}
 
 
