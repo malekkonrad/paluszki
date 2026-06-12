@@ -1,4 +1,4 @@
-# Paluszki — dokumentacja techniczna
+# Paluszki 
 
 **Aplikacja tłumacząca język migowy na tekst.** Wideokonferencja w przeglądarce, w której
 ruch migającego uczestnika jest na żywo zamieniany na napis w języku polskim wyświetlany
